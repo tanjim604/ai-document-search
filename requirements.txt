@@ -1,0 +1,11 @@
+# Ingestion module dependencies (Tahmid). Merge into the team's requirements.txt.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9      # required by FastAPI for file uploads
+sqlalchemy>=2.0
+psycopg2-binary>=2.9         # PostgreSQL driver
+python-dotenv>=1.0
+
+# Testing
+pytest>=8.0
+httpx>=0.27                  # used by FastAPI's TestClient

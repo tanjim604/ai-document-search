@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- AI Document Search ---
+# Uploaded files are created at runtime and must not be committed
+data/
+# macOS folder metadata
+.DS_Store
