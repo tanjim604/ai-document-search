@@ -222,3 +222,6 @@ __marimo__/
 data/
 # macOS folder metadata
 .DS_Store
+
+# Local editor settings
+.vscode/

@@ -6,5 +6,6 @@ import it below as well.
 """
 from app.shared.models.base import Base
 from app.shared.models.file import File, ProcessingStatus, new_file_id
+from app.shared.models.similarity_match import SimilarityMatch
 
-__all__ = ["Base", "File", "ProcessingStatus", "new_file_id"]
+__all__ = ["Base", "File", "ProcessingStatus", "new_file_id", "SimilarityMatch"]

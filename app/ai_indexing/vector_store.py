@@ -9,11 +9,18 @@ from app.ai_indexing.embeddings import VECTOR_SIZE
 COLLECTION_NAME = "document_chunks"
 
 
+
 def create_client() -> QdrantClient:
-    """Connect to the team's local Qdrant instance."""
+    """Create a local persistent client or connect to a Qdrant server."""
+    local_path = os.getenv("QDRANT_PATH")
+
+    if local_path:
+        return QdrantClient(path=local_path)
+
     return QdrantClient(
         url=os.getenv("QDRANT_URL", "http://localhost:6333")
     )
+
 
 
 def ensure_collection(client: QdrantClient) -> None:
