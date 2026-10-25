@@ -1,7 +1,7 @@
-# AI Indexing & Similarity --- Zahid's Implementation
+# AI Indexing & Similarity --- Jahid's Implementation
 
 **Project:** COMP 3710 --- AI Document Search\
-**Owner:** Zahid\
+**Owner:** Md Jahid Hossain\
 **Branch:** `feature/ai-indexing-similarity`\
 **Latest reported verification:** 91 tests passed, 1 Starlette/httpx
 deprecation warning.
