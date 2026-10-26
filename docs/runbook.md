@@ -28,7 +28,10 @@ In the Docker setup everything is kept in the database container, so one place h
 | File records, extracted text, summaries, duplicate links | PostgreSQL, tables `files`, `document_contents`, `document_chunks`, `similarity_matches` |
 | Search index (meaning-numbers) | Qdrant (can be rebuilt from the stored text) |
 
-Look inside the database (PostgreSQL and Qdrant are reachable from this computer only, not from the network):
+Browse the database in a web page (Adminer, optional and for this computer only):
+`docker-compose --profile tools up -d adminer`, then open <http://localhost:8080> and log in with System `PostgreSQL`, Server `postgres`, Username `ai_docs`, Password `ai_docs` (or your `POSTGRES_PASSWORD`), Database `ai_docs`. Click a table to see its rows. In `stored_files`, the `data` column shows a link such as "1,521 bytes": clicking it downloads the original file (the browser names it `...data`, so rename it back to `.pdf` or the right extension). Stop it with `docker-compose stop adminer`.
+
+Or look inside the database from a terminal (PostgreSQL and Qdrant are reachable from this computer only, not from the network):
 `docker-compose exec postgres psql -U ai_docs -d ai_docs` opens a prompt (`\dt` lists tables, `\q` quits). A desktop client such as TablePlus, DBeaver or pgAdmin can connect to host `localhost`, port `5432`, database `ai_docs`, user `ai_docs` and the password from `POSTGRES_PASSWORD` (default `ai_docs`).
 The file contents are in `stored_files.data` as binary, so a query shows bytes rather than a readable document. To save one back to a normal file:
 `docker-compose exec -T postgres psql -U ai_docs -d ai_docs -Atc "select encode(s.data,'base64') from stored_files s join files f on f.storage_path=s.path where f.filename='report.pdf'" | base64 -d > report.pdf`

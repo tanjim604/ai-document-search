@@ -43,6 +43,16 @@ services:
       qdrant:
         condition: service_started
 
+  # Optional web page for browsing the database: docker compose --profile tools up -d adminer
+  # then open http://localhost:8080 (server: postgres, user/database: ai_docs). This computer only.
+  adminer:
+    image: adminer:4
+    profiles: ["tools"]
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      - postgres
+
 volumes:
   postgres_data:
   qdrant_data:
