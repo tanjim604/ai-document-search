@@ -9,6 +9,7 @@ cp .env.example .env          # optional; set POSTGRES_PASSWORD here, never comm
 docker compose up --build     # first build downloads PyTorch and the model (several minutes)
 ```
 
+- Web app (upload, library, search box): <http://localhost:8000>
 - API and interactive docs: <http://localhost:8000/docs>
 - Health check: `curl localhost:8000/health`
 - Stop: `Ctrl+C`, then `docker compose down` (add `-v` to also delete stored data)
@@ -37,6 +38,10 @@ uvicorn app.main:app --reload
 ```
 
 ## 3. Use it
+
+Easiest: open <http://localhost:8000>, upload files (button or drag and drop), then type what you are looking for, for example `Pull up the research paper about AI evolution`. A link such as `http://localhost:8000/?q=budget` runs a search on load.
+
+Or use the API directly:
 
 ```bash
 # upload (processing runs in the background)

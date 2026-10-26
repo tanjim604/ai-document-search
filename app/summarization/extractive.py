@@ -29,8 +29,26 @@ def split_sentences(text: str) -> list[str]:
     return [s for s in sentences if MIN_SENTENCE_CHARS <= len(s) <= MAX_SENTENCE_CHARS]
 
 
+def describe_table(text: str) -> str | None:
+    """One readable line for CSV/XLSX text ('a | b | c' rows); None if it is not a table."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    rows = [line for line in lines if " | " in line]
+    if len(rows) < 2 or len(rows) < len(lines) / 2:
+        return None
+    columns = [c.strip() for c in rows[0].split("|") if c.strip()]
+    sheet = next((l[6:].strip() for l in lines if l.lower().startswith("sheet:")), "")
+    # xlsx text starts "Sheet: Name | Col ..." on one line: strip the prefix from the header
+    if columns and columns[0].lower().startswith("sheet:"):
+        columns[0] = columns[0][6:].strip()
+    where = f' (sheet "{sheet.split("|")[0].strip()}")' if sheet else ""
+    return f"Table{where} with {len(rows) - 1} rows and columns: {', '.join(columns)}."
+
+
 def summarize_extractive(text: str, max_sentences: int = MAX_SENTENCES) -> str:
     """Return up to `max_sentences` representative sentences ('' if none found)."""
+    table = describe_table(text)
+    if table:
+        return table
     sentences = split_sentences(text)[:MAX_CANDIDATES]
     if not sentences:
         # No proper sentences (a CSV, say): fall back to the opening text.

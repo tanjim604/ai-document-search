@@ -8,7 +8,7 @@ search by meaning instead of filename.
 
 ```bash
 docker compose up --build      # PostgreSQL + Qdrant + API
-# then open http://localhost:8000/docs
+# then open http://localhost:8000 (web app) or http://localhost:8000/docs (API)
 ```
 
 | Module | Owner | Code |

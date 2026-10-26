@@ -170,3 +170,45 @@ def test_list_files(api):
     upload(api, "a.txt", AI_HISTORY.encode())
     listing = api.get("/files").json()
     assert [f["filename"] for f in listing] == ["a.txt"]
+
+
+def test_chat_style_prompt_finds_the_document(api):
+    history = upload(api, "doc1.txt", AI_HISTORY.encode())
+    upload(api, "doc2.txt", COOKING.encode())
+
+    body = api.get("/search", params={"q": "Pull up the research paper about AI evolution"}).json()
+
+    assert body["results"][0]["file_id"] == history["file_id"]
+
+
+def test_list_includes_summary_and_download_returns_original(api):
+    uploaded = upload(api, "history.txt", AI_HISTORY.encode())
+
+    item = api.get("/files").json()[0]
+    assert item["summary"] and item["status"] == "indexed"
+
+    download = api.get(f"/files/{uploaded['file_id']}/download")
+    assert download.status_code == 200 and download.content == AI_HISTORY.encode()
+    assert api.get("/files/f_missing/download").status_code == 404
+
+
+def test_web_app_is_served(api):
+    page = api.get("/")
+    assert page.status_code == 200 and "text/html" in page.headers["content-type"]
+
+
+def test_several_uploads_at_once_are_all_processed(api):
+    import threading
+
+    ids = []
+
+    def send(i):
+        text = AI_HISTORY if i % 2 else COOKING
+        ids.append(upload(api, f"doc{i}.txt", (text + f" Variant {i}.").encode())["file_id"])
+
+    threads = [threading.Thread(target=send, args=(i,)) for i in range(5)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+
+    statuses = {f["file_id"]: f["status"] for f in api.get("/files").json()}
+    assert len(statuses) == 5 and set(statuses.values()) == {"indexed"}

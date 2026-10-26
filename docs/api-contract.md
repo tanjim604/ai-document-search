@@ -75,7 +75,9 @@ update_processing_status(db, file_id, ProcessingStatus.EXTRACTED)
 |---|---|---|---|
 | `POST /files` | Upload one file (multipart field `file`) | Tahmid | Built |
 | `GET /files/{file_id}` | Status and details of one file | Tahmid | Built |
-| `GET /files` | List files and status (`limit`, `offset`) | Tanjim | Built |
+| `GET /` | Web app (upload, library, search) | Tanjim | Built |
+| `GET /files` | List files with status and summary (`limit`, `offset`) | Tanjim | Built |
+| `GET /files/{file_id}/download` | The original file | Tanjim | Built |
 | `POST /files/{file_id}/process` | Run or re-run extraction, summary, indexing | Tanjim | Built |
 | `GET /files/{file_id}/similar` | Duplicate and related-file matches | Tanjim | Built |
 | `GET /search?q=...` | Semantic search, one result per document | Tanjim | Built |
@@ -109,7 +111,7 @@ Unless `AUTO_PROCESS_UPLOADS=false`, the server then runs extraction, summary an
 
 ### `GET /search?q=...` → `200`
 
-Query parameters: `q` (required, 1-500 characters), `limit` (1-50, default 10), `min_score` (0-1, default 0.2), `extension` (e.g. `pdf`). Only `indexed` files are returned; each file appears once with its best-matching chunk.
+Request words such as "Pull up the" or "Find me a" are removed before matching. Query parameters: `q` (required, 1-500 characters), `limit` (1-50, default 10), `min_score` (0-1, default 0.2), `extension` (e.g. `pdf`). Only `indexed` files are returned; each file appears once with its best-matching chunk.
 
 ```json
 { "query": "research paper about AI evolution",

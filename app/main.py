@@ -8,8 +8,10 @@ Run from the repository root:
 Then open http://127.0.0.1:8000/docs
 """
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 
 from app.ingestion.routes import router as ingestion_router
 from app.pipeline.routes import router as pipeline_router
@@ -20,6 +22,9 @@ from app.shared.database import init_db
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()  # create missing tables when the server starts
+    from app.ai_indexing.embeddings import get_model
+
+    get_model()  # load the embedding model now, not during the first upload or search
     yield
 
 
@@ -27,6 +32,11 @@ app = FastAPI(title="AI Document Search", lifespan=lifespan)
 app.include_router(ingestion_router)
 app.include_router(pipeline_router)
 app.include_router(search_router)
+
+
+@app.get("/", include_in_schema=False)
+def web_app() -> FileResponse:
+    return FileResponse(Path(__file__).parent / "static" / "index.html")
 
 
 @app.get("/health", tags=["health"])

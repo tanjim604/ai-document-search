@@ -35,3 +35,14 @@ def test_picks_representative_sentences_in_original_order(monkeypatch):
 
 def test_text_without_sentences_falls_back_to_opening():
     assert extractive.summarize_extractive("a,b,c\n1,2,3") == "a,b,c 1,2,3"
+
+
+def test_csv_text_gets_a_table_description(monkeypatch):
+    monkeypatch.setattr(extractive, "embed_chunks", lambda s: pytest.fail("not needed"))
+    text = "year | milestone\n1956 | Dartmouth workshop\n1958 | Perceptron\n"
+    assert extractive.summarize_extractive(text) == "Table with 2 rows and columns: year, milestone."
+
+
+def test_xlsx_text_includes_the_sheet_name():
+    text = "Sheet: Budget\nItem | Cost (CAD)\nCloud | 0\nDomain | 15\nTotal | \n"
+    assert extractive.describe_table(text) == 'Table (sheet "Budget") with 2 rows and columns: Item, Cost (CAD).'
