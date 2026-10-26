@@ -29,8 +29,9 @@ class Settings:
     # Largest file POST /files will accept, in bytes.
     max_upload_size_bytes: int
 
-    # Which storage adapter to use. Only "local" exists for now;
-    # a cloud adapter (S3 / Azure Blob / Google Cloud Storage) can be added later.
+    # Which storage adapter to use: "local" (a folder on disk) or "database"
+    # (the bytes are kept in the stored_files table, so one database holds everything).
+    # A cloud adapter (S3 / Azure Blob / Google Cloud Storage) can be added later.
     storage_backend: str
 
     # Search and integration settings (Tanjim). They have defaults so that

@@ -20,7 +20,7 @@ Code: `app/shared/models/file.py` · Table: `files` · SQL: [`docs/sql/files_tab
 | `filename` | string | Original name from the upload. **Not unique.** |
 | `extension` | string | Lower case, no dot: `pdf`, `docx`, `txt`, `csv`, `xlsx`, `png`, `jpg`, `jpeg` |
 | `mime_type` | string | Decided from the file's content, e.g. `application/pdf` |
-| `storage_path` | string, unique | e.g. `data/uploads/pdf/f_3f2a9c....pdf`. Read it through the storage adapter. |
+| `storage_path` | string, unique | e.g. `db/pdf/f_3f2a9c....pdf` (database storage, the Docker default) or `data/uploads/pdf/f_3f2a9c....pdf` (local storage). Always read it through the storage adapter. |
 | `sha256_hash` | string (64 hex) | Content fingerprint. The same bytes always give the same hash. |
 | `processing_status` | string | See section 2 |
 | `created_at` | timestamp with time zone | When the upload was saved |

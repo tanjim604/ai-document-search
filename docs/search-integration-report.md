@@ -118,13 +118,21 @@ Friends and the supervisor need to check the system from their own machines. Ver
 
 A permanent deployment would need a host that runs containers (Render, Railway or Fly.io) with about 1 to 2 GB of memory, which is normally a paid plan; I did not set one up.
 
+### 3.9f Central storage: files inside the database
+Uploaded files used to be saved as ordinary files in a folder (a Docker volume), with their details in PostgreSQL and the search index in Qdrant. That meant three places and a folder that is hard to find on the host. I added a database storage adapter (`app/shared/storage/database.py`) that keeps the bytes of each upload in a `stored_files` table in PostgreSQL, next to the rest of the data, so one database holds every file with its metadata, text and summary and one `pg_dump` backs up all of it. The storage interface from the ingestion module made this a drop-in change: the other modules still call `save`, `read_bytes`, `exists` and `delete` and needed no edits. Choosing it is a setting (`STORAGE_BACKEND=database`, now the Docker default); `local` still works.
+
+Design points: the file bytes live in their own table so listing or searching files never loads them; the adapter never overwrites an existing path, like the local one; and paths that start with `db/` are read from the database while older disk paths are read through a fallback to the old folder, so nothing breaks during the switch. Qdrant stays a separate store because it holds only the search numbers, which can be rebuilt from the stored text, and replacing it would depart from the proposal.
+
+I moved the 93 existing files with a migration tool (`python -m app.shared.storage.migrate`). It copies each file into the database, reads the copy back and compares its SHA-256 with the fingerprint recorded at upload time, and only then updates the record; a copy that does not match is discarded, and local copies are deleted only if `--delete-old` is passed. Result: 93 moved, 0 missing, 0 mismatched. As an independent check I then downloaded all 93 files through the running app and compared each one's SHA-256 with the stored fingerprint: 93 of 93 matched. A new upload went straight into the database. The old disk copies were left in place and can be removed with `--delete-old`.
+
 ### 3.10 Docker
-`Dockerfile` (Python 3.11, Tesseract from `apt`, CPU-only PyTorch, the embedding and image captioning models baked into the image), `docker-compose.yml` (PostgreSQL 16 with a healthcheck, Qdrant, the API, named volumes) and `.dockerignore`. The database password comes from an environment variable. `QDRANT_PATH` is set to empty in compose because `.env.example` sets it to a folder, which would otherwise override the Qdrant server.
+`Dockerfile` (Python 3.11, Tesseract from `apt`, CPU-only PyTorch, the embedding and image captioning models baked into the image), `docker-compose.yml` (PostgreSQL 16 with a healthcheck, Qdrant, the API, named volumes; uploaded files are stored in PostgreSQL) and `.dockerignore`. The database password comes from an environment variable. `QDRANT_PATH` is set to empty in compose because `.env.example` sets it to a folder, which would otherwise override the Qdrant server.
 
 ### 3.11 Tests
 - `tests/integration/test_end_to_end.py` (19 tests): upload → extraction → summary → indexing → similarity → search with the real model and an in-memory Qdrant. It covers reworded and chat-style queries, filename matching, one result per document, the extension filter, an empty index, invalid input, every similarity label, photos described and found by what they show, unreadable images, reprocessing, the file list, download, the served web page, five simultaneous uploads, the job queue and resuming unfinished files after a restart.
 - Unit tests: `tests/test_summarization.py` (6), `tests/test_query_cleaning.py` (5), `tests/test_ranking.py` (5), `tests/test_vision.py` (11) and `tests/test_auth.py` (3).
-- **Result: 153 tests, 152 pass and 1 is skipped** (49 of them are mine, 104 are the teammates'). The skipped test needs Tesseract installed on the host. I could not install it on my Mac because the Xcode Command Line Tools are too old for Homebrew's source build, so OCR was verified inside the Docker image instead.
+- `tests/test_database_storage.py` (12 tests): the adapter contract (save, read, never overwrite, delete, binary content, fallback to the old folder) and the migration tool (moves and updates records, repeatable, optional deletion, missing files, hash-mismatch refusal), plus one end-to-end test that uploads, indexes, searches and downloads with the files stored in the database.
+- **Result: 166 tests, 165 pass and 1 is skipped** (62 of them are mine, 104 are the teammates'). The skipped test needs Tesseract installed on the host. I could not install it on my Mac because the Xcode Command Line Tools are too old for Homebrew's source build, so OCR was verified inside the Docker image instead.
 - `scripts/evaluate.py` runs the proposal's evaluation on the sample files against a running server.
 
 ### 3.12 Documentation
@@ -161,6 +169,7 @@ I ran `scripts/evaluate.py` against a local server (SQLite and embedded Qdrant) 
 | "my dog at the beach" | `IMG_8443.jpeg` ranked first (100%) |
 | "show me the meeting agenda image" | `meeting-agenda.png` ranked first (91%), text read by OCR |
 | Request without the password | HTTP 401; with the password HTTP 200 |
+| 93 files moved into the database | 93 of 93 downloaded back with a matching SHA-256 |
 
 The exact copy and the edited copy also appear as separate search results because they are separate files. Docker was run on my Mac with Colima, so the commands used `docker-compose`.
 
@@ -170,6 +179,8 @@ The exact copy and the edited copy also appear as separate search results becaus
 - Summaries are extractive, not written by a language model.
 - Thresholds were tuned on 8 small sample files and could shift with more varied documents.
 - Embedded-Qdrant mode (no Docker) allows only one running server process.
+- Files stored in the database make it larger and its backups slower for big files; this is fine at the 25 MB upload limit, but a very large collection would call for object storage (S3 or similar) behind the same storage interface.
+- The search index is still a second store (Qdrant); it can be rebuilt from the stored text.
 - The near-duplicate check runs one Qdrant query per chunk, so very large documents are slower to compare.
 - Files are processed one at a time, so a very large batch takes a while to finish (about 0.15 seconds per small file here).
 - Processing runs inside the API process; unfinished files are re-queued when the server restarts.
@@ -180,8 +191,8 @@ The exact copy and the edited copy also appear as separate search results becaus
 
 ## 7. Files added or changed
 
-New: `app/pipeline/` (including `vision_step.py`), `app/search/`, `app/summarization/`, `app/vision/`, `app/static/index.html`, `tests/integration/`, `tests/test_summarization.py`, `tests/test_query_cleaning.py`, `tests/test_ranking.py`, `tests/test_vision.py`, `tests/test_auth.py`, `scripts/evaluate.py`, `scripts/bulk_upload.py`, `scripts/generate_samples.py`, `scripts/codespace_start.sh`, `sample_files/library/`, `.devcontainer/`, `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `docs/runbook.md`, this report.
-Changed: `app/main.py`, `app/ingestion/routes.py`, `app/shared/config/settings.py`, `app/shared/models/file.py`, `app/shared/models/__init__.py`, `app/ai_indexing/embeddings.py`, `requirements.txt`, `tests/conftest.py`, `.env.example`, `docs/api-contract.md`, `README.md`.
+New: `app/shared/storage/database.py`, `app/shared/storage/migrate.py`, `app/shared/models/stored_file.py`, `tests/test_database_storage.py`, `app/pipeline/` (including `vision_step.py`), `app/search/`, `app/summarization/`, `app/vision/`, `app/static/index.html`, `tests/integration/`, `tests/test_summarization.py`, `tests/test_query_cleaning.py`, `tests/test_ranking.py`, `tests/test_vision.py`, `tests/test_auth.py`, `scripts/evaluate.py`, `scripts/bulk_upload.py`, `scripts/generate_samples.py`, `scripts/codespace_start.sh`, `sample_files/library/`, `.devcontainer/`, `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `docs/runbook.md`, this report.
+Changed: `app/main.py`, `app/ingestion/routes.py`, `app/shared/config/settings.py`, `app/shared/models/file.py`, `app/shared/models/__init__.py`, `app/shared/storage/__init__.py`, `app/ai_indexing/embeddings.py`, `requirements.txt`, `tests/conftest.py`, `.env.example`, `docs/api-contract.md`, `README.md`.
 
 ## 8. Running and demonstrating the system
 

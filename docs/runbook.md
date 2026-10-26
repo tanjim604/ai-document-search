@@ -18,6 +18,25 @@ Uploaded originals, PostgreSQL data and the Qdrant index live in Docker volumes,
 
 > On a Mac without Docker Desktop: `brew install colima docker docker-compose && colima start`, then use `docker-compose` instead of `docker compose`.
 
+## 1a. Where the data is stored
+
+In the Docker setup everything is kept in the database container, so one place holds it all:
+
+| What | Where |
+|---|---|
+| Uploaded files (the original PDFs, photos and so on) | PostgreSQL, table `stored_files` |
+| File records, extracted text, summaries, duplicate links | PostgreSQL, tables `files`, `document_contents`, `document_chunks`, `similarity_matches` |
+| Search index (meaning-numbers) | Qdrant (can be rebuilt from the stored text) |
+
+Back up the files and all their details with one command:
+`docker-compose exec postgres pg_dump -U ai_docs ai_docs > backup.sql`
+
+Data lives in Docker volumes and survives restarts; `docker-compose down -v` deletes it all.
+
+Files uploaded before the switch to database storage can be moved in (safe to repeat; each copy is checked against the file's SHA-256 before the record is updated):
+`docker-compose exec api python -m app.shared.storage.migrate`
+Add `--delete-old` to remove the old disk copies afterwards. To go back to plain folders, set `STORAGE_BACKEND=local`.
+
 ## 1b. Run it online from GitHub (Codespaces)
 
 GitHub itself cannot host this backend (GitHub Pages serves static files only), but a Codespace can run the whole Docker stack from the repository:
@@ -113,7 +132,8 @@ The end-to-end tests load the real embedding model. The first run downloads it (
 | Variable | Default | Meaning |
 |---|---|---|
 | `DATABASE_URL` | local PostgreSQL | SQLAlchemy URL |
-| `UPLOAD_DIR` | `data/uploads` | Where originals are stored |
+| `STORAGE_BACKEND` | `local` (`database` in docker-compose) | `database` keeps uploaded files inside PostgreSQL; `local` keeps them in a folder |
+| `UPLOAD_DIR` | `data/uploads` | The folder used by `local` storage, and the place old files are read from after switching to `database` |
 | `QDRANT_URL` / `QDRANT_PATH` | `http://localhost:6333` / unset | Server URL, or a folder for embedded mode (path wins if set) |
 | `AUTO_PROCESS_UPLOADS` | `true` | Process each upload in the background |
 | `NEAR_DUPLICATE_THRESHOLD` | `0.95` | Document score at or above this = near duplicate |

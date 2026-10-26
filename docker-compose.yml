@@ -32,8 +32,8 @@ services:
       DATABASE_URL: postgresql+psycopg2://ai_docs:${POSTGRES_PASSWORD:-ai_docs}@postgres:5432/ai_docs
       QDRANT_URL: http://qdrant:6333
       QDRANT_PATH: ""            # empty = use the Qdrant server above, not an embedded folder
-      UPLOAD_DIR: /data/uploads
-      STORAGE_BACKEND: local
+      UPLOAD_DIR: /data/uploads   # only used to read files saved before the switch to the database
+      STORAGE_BACKEND: database   # uploaded files are stored inside PostgreSQL
       APP_PASSWORD: ${APP_PASSWORD:-}   # set in .env to require a password (use this before sharing a link)
     volumes:
       - uploads_data:/data/uploads

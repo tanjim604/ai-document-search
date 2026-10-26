@@ -8,8 +8,9 @@ from app.shared.models.file import File, ProcessingStatus, new_file_id
 from app.shared.models.document_content import DocumentContent
 from app.shared.models.document_chunk import DocumentChunk
 from app.shared.models.similarity_match import SimilarityMatch
+from app.shared.models.stored_file import StoredFile
 
 __all__ = [
     "Base", "File", "ProcessingStatus", "new_file_id",
-    "DocumentContent", "DocumentChunk", "SimilarityMatch",
+    "DocumentContent", "DocumentChunk", "SimilarityMatch", "StoredFile",
 ]

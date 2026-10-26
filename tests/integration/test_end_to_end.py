@@ -311,3 +311,23 @@ def test_image_with_nothing_readable_stays_ocr_needed(api, monkeypatch):
 
     assert api.get(f"/files/{uploaded['file_id']}").json()["status"] == "ocr_needed"
     assert api.get("/search", params={"q": "blank"}).json()["results"] == []
+
+
+def test_uploads_are_stored_inside_the_database(api, session_factory, upload_root, monkeypatch):
+    from app.shared.models.stored_file import StoredFile
+    from app.shared.storage import DatabaseStorage, get_storage
+
+    database_storage = DatabaseStorage(session_factory)
+    app.dependency_overrides[get_storage] = lambda: database_storage
+    monkeypatch.setattr("app.extraction.storage_bridge.get_storage", lambda: database_storage)
+    monkeypatch.setattr("app.pipeline.vision_step.get_storage", lambda: database_storage)
+
+    uploaded = upload(api, "history.txt", AI_HISTORY.encode())
+
+    assert uploaded["storage_path"].startswith("db/txt/")
+    assert api.get(f"/files/{uploaded['file_id']}").json()["status"] == "indexed"
+    assert api.get(f"/files/{uploaded['file_id']}/download").content == AI_HISTORY.encode()
+    assert api.get("/search", params={"q": "history of artificial intelligence"}).json()["results"]
+    with session_factory() as db:
+        assert db.query(StoredFile).count() == 1
+    assert not upload_root.exists() or not any(upload_root.rglob("*.txt"))   # nothing written to disk
