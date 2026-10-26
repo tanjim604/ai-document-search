@@ -105,13 +105,26 @@ Photos can be anything, such as a meeting or a dog, and a photo has no text for 
 
 Each tool is optional, so one failing does not block the other. Results in the Docker stack with real photos: a Labrador photo became "a small dog standing in the grass" and was found by "picture of a dog" (94%); a COCO photo became "two cats sleeping on a couch" and was found by "photo of two cats on a sofa" (100%); a generated meeting-agenda image had its text read by OCR and was found by "show me the meeting agenda image" (91%) and "which file mentions the Q4 budget review" (78%); the scanned sample page from the original samples is now read and indexed. The captioning model is small, so descriptions are short and generic (it called the Labrador a "small dog"), and it can miss detail.
 
+The library also held 22 of my own phone photos (`IMG_*.jpeg`) that had been uploaded before this feature existed and were stuck at `ocr_needed`. I reprocessed all 22 through `POST /files/{id}/process`: 22 of 22 were indexed, at 3 to 7 seconds each, and the library then showed 93 files, all `indexed`. Searching by description found the right photo first: "my dog at the beach" (100%), "photos of food" (89%), "CN tower in Toronto" (100%), "a horse and carriage" (100%) and "boats in a harbor" (100%); generic queries such as "inside of a car" scored lower (47%) because the descriptions give little to match on.
+
+### 3.9d Access protection
+The app had no login, so sharing a public link would have let anyone upload files to my machine. I added an optional shared password: when `APP_PASSWORD` is set (in `.env`, which git ignores, or as an environment variable), a middleware asks for it on every page and endpoint except `/health`. The browser shows its own login box (any username, the shared password) and then sends the credentials with each request, so the page's own requests, downloads and photo previews keep working. Comparison uses `secrets.compare_digest`. Without the variable the app stays open for local development. `docker-compose.yml` passes the variable through. The tests clear it so a local `.env` cannot lock them out. I verified on the Docker stack that a request without the password gets 401, with the password 200, and that all stored files were unaffected.
+
+### 3.9e Sharing the system for remote checking
+Friends and the supervisor need to check the system from their own machines. Vercel and GitHub Pages cannot run this backend (PyTorch, PostgreSQL and Qdrant do not fit serverless functions, and Pages serves static files only), so I used two options that run the real Docker stack:
+
+- **Temporary public link:** `cloudflared tunnel --url http://localhost:8000` exposes the local app at a random `trycloudflare.com` address for as long as the command runs. I started it from my own terminal, with the password above enabled. The link changes each time and stops when the terminal closes or the Mac sleeps.
+- **GitHub Codespaces:** `.devcontainer/devcontainer.json` and `scripts/codespace_start.sh` start the Docker Compose stack in a codespace and load the sample documents. I have not been able to test this one.
+
+A permanent deployment would need a host that runs containers (Render, Railway or Fly.io) with about 1 to 2 GB of memory, which is normally a paid plan; I did not set one up.
+
 ### 3.10 Docker
-`Dockerfile` (Python 3.11, CPU-only PyTorch, embedding model baked into the image), `docker-compose.yml` (PostgreSQL 16 with a healthcheck, Qdrant, the API, named volumes) and `.dockerignore`. The database password comes from an environment variable. `QDRANT_PATH` is set to empty in compose because `.env.example` sets it to a folder, which would otherwise override the Qdrant server.
+`Dockerfile` (Python 3.11, Tesseract from `apt`, CPU-only PyTorch, the embedding and image captioning models baked into the image), `docker-compose.yml` (PostgreSQL 16 with a healthcheck, Qdrant, the API, named volumes) and `.dockerignore`. The database password comes from an environment variable. `QDRANT_PATH` is set to empty in compose because `.env.example` sets it to a folder, which would otherwise override the Qdrant server.
 
 ### 3.11 Tests
-- `tests/integration/test_end_to_end.py` (17 tests): upload → extraction → summary → indexing → similarity → search with the real model and an in-memory Qdrant. It covers reworded and chat-style queries, one result per document, the extension filter, an empty index, invalid input, every similarity label, OCR-needed files, reprocessing, the file list, download, the served web page, and five simultaneous uploads.
-- `tests/test_summarization.py` (6 tests) and `tests/test_query_cleaning.py` (5 tests) and `tests/test_ranking.py` (5 tests).
-- **Result: 152 tests pass, 1 skipped** (the skipped one needs Tesseract installed on the host; it runs inside Docker).
+- `tests/integration/test_end_to_end.py` (19 tests): upload → extraction → summary → indexing → similarity → search with the real model and an in-memory Qdrant. It covers reworded and chat-style queries, filename matching, one result per document, the extension filter, an empty index, invalid input, every similarity label, photos described and found by what they show, unreadable images, reprocessing, the file list, download, the served web page, five simultaneous uploads, the job queue and resuming unfinished files after a restart.
+- Unit tests: `tests/test_summarization.py` (6), `tests/test_query_cleaning.py` (5), `tests/test_ranking.py` (5), `tests/test_vision.py` (11) and `tests/test_auth.py` (3).
+- **Result: 153 tests, 152 pass and 1 is skipped** (49 of them are mine, 104 are the teammates'). The skipped test needs Tesseract installed on the host. I could not install it on my Mac because the Xcode Command Line Tools are too old for Homebrew's source build, so OCR was verified inside the Docker image instead.
 - `scripts/evaluate.py` runs the proposal's evaluation on the sample files against a running server.
 
 ### 3.12 Documentation
@@ -122,9 +135,11 @@ Each tool is optional, so one failing does not block the other. Results in the D
 1. **First upload failed on an empty Qdrant.** `index_chunks` writes to Qdrant but never creates the collection (`ensure_collection` was only called during search). The unit tests mock the client, so they missed it. My pipeline now calls `ensure_collection` before indexing.
 2. **Process crash when several files were uploaded at once.** The web page uploads files in parallel. Each upload started its own background thread, all of them loaded the embedding model at once, and Python aborted inside PyTorch. I reproduced it with a test, then fixed it in three places: a lock around every model call in `app/ai_indexing/embeddings.py`, a lock so pipeline jobs take turns writing to Qdrant, and loading the model when the server starts. The same crash could occur when a search ran during indexing; the model lock covers that case too. A later large-batch test exposed a second problem with the same design (connection exhaustion), which the job queue in section 3.9a fixed.
 3. **"Related" threshold too high for the model** (section 3.6). It is now configurable.
-4. **Scanned files were marked `failed`.** The proposal calls for "needs OCR", so I added the `ocr_needed` status and the pipeline applies it.
+4. **Scanned files were marked `failed`.** The proposal calls for "needs OCR", so I added the `ocr_needed` status and the pipeline applies it. That left photos and scans unsearchable, which section 3.9c fixed by actually reading them.
 5. **Extraction reads storage directly.** `storage_bridge` calls `get_storage()` instead of using the FastAPI dependency, so test storage overrides do not reach it. This is harmless in production, and the end-to-end tests patch it.
 6. **`requirements.txt`** had unpinned entries and no trailing newline; it is now one organised file.
+7. **The captioning model rambled on pictures of plain text** (for example `a page that reads ' ' ' ', ' '`). I added a check that discards captions that are mostly punctuation; OCR still reads the text.
+8. **A local password locked the tests out.** After I set `APP_PASSWORD` in my `.env`, every test request returned 401. The test setup now clears the variable for each test.
 
 Edits to other members' files, for the record: `app/ingestion/routes.py` (background task), `app/shared/config/settings.py` (new settings with defaults), `app/shared/models/file.py` (`ocr_needed` status), `app/ai_indexing/embeddings.py` (model lock).
 
@@ -142,6 +157,10 @@ I ran `scripts/evaluate.py` against a local server (SQLite and embedded Qdrant) 
 | "history of artificial intelligence" | AI paper files ranked first |
 | "how much money is budgeted" | `project-budget.xlsx` ranked first |
 | 51 files uploaded in one batch | 51 indexed in 7.4 s, no errors |
+| 22 stuck phone photos reprocessed | 22 of 22 indexed; library at 93 files, all `indexed` |
+| "my dog at the beach" | `IMG_8443.jpeg` ranked first (100%) |
+| "show me the meeting agenda image" | `meeting-agenda.png` ranked first (91%), text read by OCR |
+| Request without the password | HTTP 401; with the password HTTP 200 |
 
 The exact copy and the edited copy also appear as separate search results because they are separate files. Docker was run on my Mac with Colima, so the commands used `docker-compose`.
 
@@ -154,22 +173,22 @@ The exact copy and the edited copy also appear as separate search results becaus
 - The near-duplicate check runs one Qdrant query per chunk, so very large documents are slower to compare.
 - Files are processed one at a time, so a very large batch takes a while to finish (about 0.15 seconds per small file here).
 - Processing runs inside the API process; unfinished files are re-queued when the server restarts.
-- The API and web page have no authentication or delete function.
+- Access control is one shared password with no per-user accounts, and there is no delete function.
+- OCR was verified only inside Docker (Tesseract could not be installed on my Mac).
+- The Codespaces setup is untested, and the tunnel link is temporary.
+- Photos are described once at upload; reprocessing is manual (`POST /files/{id}/process`) after changing the vision models.
 
 ## 7. Files added or changed
 
-New: `app/pipeline/`, `app/search/`, `app/summarization/`, `app/static/index.html`, `tests/integration/`, `tests/test_summarization.py`, `tests/test_query_cleaning.py`, `scripts/evaluate.py`, `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `docs/runbook.md`, this report.
+New: `app/pipeline/` (including `vision_step.py`), `app/search/`, `app/summarization/`, `app/vision/`, `app/static/index.html`, `tests/integration/`, `tests/test_summarization.py`, `tests/test_query_cleaning.py`, `tests/test_ranking.py`, `tests/test_vision.py`, `tests/test_auth.py`, `scripts/evaluate.py`, `scripts/bulk_upload.py`, `scripts/generate_samples.py`, `scripts/codespace_start.sh`, `sample_files/library/`, `.devcontainer/`, `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `docs/runbook.md`, this report.
 Changed: `app/main.py`, `app/ingestion/routes.py`, `app/shared/config/settings.py`, `app/shared/models/file.py`, `app/shared/models/__init__.py`, `app/ai_indexing/embeddings.py`, `requirements.txt`, `tests/conftest.py`, `.env.example`, `docs/api-contract.md`, `README.md`.
 
 ## 8. Running and demonstrating the system
 
-1. `docker compose up --build`, then open <http://localhost:8000>.
-2. Upload `ai-evolution.pdf` and watch its status change to Ready.
+1. `docker compose up --build`, then open <http://localhost:8000> (enter the password if `APP_PASSWORD` is set).
+2. Click Upload files, optionally rename `ai-evolution.pdf` in the dialog, and watch the checkmark animation and the status change to Ready.
 3. Upload it again: a notice reports the exact copy. Click Related files on either copy.
 4. Upload `ai-evolution-edited.pdf`: it appears as a near duplicate.
 5. Type "Pull up the research paper about AI evolution": the paper is the first result, with its summary and the matching excerpt.
-6. Upload `scanned-page.png`: it is marked Needs OCR and is not searchable.
-
-## 9. AI tool use
-
-I used an AI coding assistant (Claude Code) to help implement and document this module, consistent with the AI tool acknowledgement in the project proposal.
+6. Upload a photo, for example of a dog: its description appears as the summary, and searching "picture of a dog" returns it with a preview.
+7. Upload an image containing text, such as `meeting-agenda-slide.png`: OCR reads the writing, and searching for something written in it finds the image.
