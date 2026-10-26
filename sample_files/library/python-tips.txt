@@ -1,0 +1,7 @@
+Python Tips
+
+Use list comprehensions for simple transformations, but switch to a normal loop when the logic gets complicated.
+
+Prefer f-strings for formatting, use pathlib for file paths and use context managers so files are always closed.
+
+Write small functions, add type hints and run tests with pytest before every commit.

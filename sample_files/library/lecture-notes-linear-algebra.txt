@@ -1,0 +1,7 @@
+Lecture Notes: Linear Algebra
+
+A vector space is a set closed under addition and scalar multiplication. A basis is a linearly independent set that spans the space, and its size is the dimension.
+
+A matrix represents a linear transformation. Eigenvectors are directions that the transformation only stretches, and the stretch factor is the eigenvalue.
+
+Singular value decomposition factors any matrix and underlies principal component analysis and many recommender systems.

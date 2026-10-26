@@ -1,0 +1,7 @@
+Data Science Interview Questions
+
+Explain the difference between supervised and unsupervised learning, and give an example of each.
+
+What is overfitting and how can regularization, cross-validation and more data reduce it? How do precision and recall differ?
+
+Describe how you would design an experiment to test whether a new recommendation algorithm increases sales.

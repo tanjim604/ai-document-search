@@ -62,9 +62,17 @@ The inherited "related" threshold of 0.75 never fires for related documents with
 3. Ask Qdrant for the closest chunks (five times `limit`, so grouping still fills the page).
 4. Group by file and keep each file's best chunk: one result per document.
 5. Look up filename, storage path and summary in PostgreSQL; skip files that are not `indexed`.
-6. Return `file_id, filename, extension, summary, score, matched_excerpt, storage_path`.
+6. Rank with a hybrid score (section 3.7a) and return `file_id, filename, extension, summary, score, semantic_score, matched_excerpt, storage_path`.
 
 Parameters: `q`, `limit`, `min_score` (default 0.2), `extension`.
+
+### 3.7a Hybrid ranking and calibrated relevance (`app/search/ranking.py`)
+Raw cosine similarity from `all-MiniLM-L6-v2` is low even for the correct document: typical correct matches scored only 0.34 to 0.55, so the page showed 34 to 46% for files that were exactly right. The model also ignores filenames, and a query for "project proposal for AI document search" ranked the file named `AI_Document_Search_Proposal.pdf` fourth. I made two changes:
+
+1. **Hybrid score.** I add a bonus when the query's keywords appear in the filename (up to 0.25), or in the summary or best-matching text (up to 0.20). Keywords exclude filler words, and a light stemming step lets "evolution" match "evolutionary".
+2. **Calibration.** The hybrid score is mapped linearly onto 0 to 100% (0.20 is 0% and 0.90 is 100%). The constants come from the scores I measured, and they live at the top of `ranking.py`.
+
+The calibration is a rescaling of the same signal, not new evidence of relevance, so weak matches stay low. Results are sorted by the new score, and the response also carries the raw `semantic_score`. Measured on the 59-file library: all 11 test queries returned the right file first, with correct matches at 61 to 100% and unrelated files at 1 to 20%. The proposal query now ranks `AI_Document_Search_Proposal.pdf` first (94%).
 
 ### 3.8 Other endpoints
 `GET /files` (list with status and summary), `GET /files/{id}/similar`, `GET /files/{id}/download` (the original file), `POST /files/{id}/process`, `GET /health`.
@@ -80,13 +88,18 @@ A single self-contained page served at `/` by the API, with no build step and no
 
 I checked the page by running the real server with the sample files and taking headless-browser screenshots of the home screen, the search answer and a narrow window.
 
+### 3.9a Large uploads
+The first version started one background thread per upload. When 50 files were uploaded at once, the waiting threads used up the server's worker threads and held database connections, the connection pool ran out and uploads failed with HTTP 500. I replaced it with a single job queue and one worker thread (`app/pipeline/dependencies.py`): an upload only adds the file id to the queue and returns, and the worker processes files in order. Files left unfinished by a restart or crash are queued again when the server starts. The page uploads four files at a time, shows a progress bar, skips hidden and unsupported files, lists every file that could not be uploaded with the reason, and can upload a whole folder (button or drag and drop). `scripts/bulk_upload.py` does the same from the command line.
+
+I generated a 51-file sample library (`scripts/generate_samples.py`, output in `sample_files/library/`: 16 PDF, 10 DOCX, 16 TXT, 5 CSV, 4 XLSX, covering AI, science, history, cooking, finance, travel and office documents, with one exact duplicate and one near duplicate). Uploaded together with the 8 original samples, 58 of 59 files were indexed (the other is the scanned PNG, flagged `ocr_needed`, and the one fake PDF in the original samples is correctly rejected). The 51-file batch uploaded in 1.3 seconds and finished indexing in 7.4 seconds.
+
 ### 3.10 Docker
 `Dockerfile` (Python 3.11, CPU-only PyTorch, embedding model baked into the image), `docker-compose.yml` (PostgreSQL 16 with a healthcheck, Qdrant, the API, named volumes) and `.dockerignore`. The database password comes from an environment variable. `QDRANT_PATH` is set to empty in compose because `.env.example` sets it to a folder, which would otherwise override the Qdrant server.
 
 ### 3.11 Tests
-- `tests/integration/test_end_to_end.py` (13 tests): upload → extraction → summary → indexing → similarity → search with the real model and an in-memory Qdrant. It covers reworded and chat-style queries, one result per document, the extension filter, an empty index, invalid input, every similarity label, OCR-needed files, reprocessing, the file list, download, the served web page, and five simultaneous uploads.
-- `tests/test_summarization.py` (6 tests) and `tests/test_query_cleaning.py` (5 tests).
-- **Result: 129 tests pass.**
+- `tests/integration/test_end_to_end.py` (17 tests): upload → extraction → summary → indexing → similarity → search with the real model and an in-memory Qdrant. It covers reworded and chat-style queries, one result per document, the extension filter, an empty index, invalid input, every similarity label, OCR-needed files, reprocessing, the file list, download, the served web page, and five simultaneous uploads.
+- `tests/test_summarization.py` (6 tests) and `tests/test_query_cleaning.py` (5 tests) and `tests/test_ranking.py` (5 tests).
+- **Result: 137 tests pass.**
 - `scripts/evaluate.py` runs the proposal's evaluation on the sample files against a running server.
 
 ### 3.12 Documentation
@@ -95,7 +108,7 @@ I checked the page by running the real server with the sample files and taking h
 ## 4. Problems found and fixed during integration
 
 1. **First upload failed on an empty Qdrant.** `index_chunks` writes to Qdrant but never creates the collection (`ensure_collection` was only called during search). The unit tests mock the client, so they missed it. My pipeline now calls `ensure_collection` before indexing.
-2. **Process crash when several files were uploaded at once.** The web page uploads files in parallel. Each upload started its own background thread, all of them loaded the embedding model at once, and Python aborted inside PyTorch. I reproduced it with a test, then fixed it in three places: a lock around every model call in `app/ai_indexing/embeddings.py`, a lock so pipeline jobs take turns writing to Qdrant, and loading the model when the server starts. The same crash could occur when a search ran during indexing; the model lock covers that case too.
+2. **Process crash when several files were uploaded at once.** The web page uploads files in parallel. Each upload started its own background thread, all of them loaded the embedding model at once, and Python aborted inside PyTorch. I reproduced it with a test, then fixed it in three places: a lock around every model call in `app/ai_indexing/embeddings.py`, a lock so pipeline jobs take turns writing to Qdrant, and loading the model when the server starts. The same crash could occur when a search ran during indexing; the model lock covers that case too. A later large-batch test exposed a second problem with the same design (connection exhaustion), which the job queue in section 3.9a fixed.
 3. **"Related" threshold too high for the model** (section 3.6). It is now configurable.
 4. **Scanned files were marked `failed`.** The proposal calls for "needs OCR", so I added the `ocr_needed` status and the pipeline applies it.
 5. **Extraction reads storage directly.** `storage_bridge` calls `get_storage()` instead of using the FastAPI dependency, so test storage overrides do not reach it. This is harmless in production, and the end-to-end tests patch it.
@@ -116,7 +129,7 @@ I ran `scripts/evaluate.py` against a local server (SQLite and embedded Qdrant) 
 | "Pull up the research paper about AI evolution" | `ai-evolution.pdf` ranked first (46%) |
 | "history of artificial intelligence" | AI paper files ranked first |
 | "how much money is budgeted" | `project-budget.xlsx` ranked first |
-| Seven files uploaded simultaneously | all processed, server stayed up |
+| 51 files uploaded in one batch | 51 indexed in 7.4 s, no errors |
 
 The exact copy and the edited copy also appear as separate search results because they are separate files. Docker was run on my Mac with Colima, so the commands used `docker-compose`.
 
@@ -127,8 +140,8 @@ The exact copy and the edited copy also appear as separate search results becaus
 - Thresholds were tuned on 8 small sample files and could shift with more varied documents.
 - Embedded-Qdrant mode (no Docker) allows only one running server process.
 - The near-duplicate check runs one Qdrant query per chunk, so very large documents are slower to compare.
-- Jobs run one at a time, so a large batch of uploads is processed sequentially.
-- Processing is a background task inside the API process; if the server stops mid-job, the file stays in `extracting` or `indexing` until `POST /files/{id}/process` is called.
+- Files are processed one at a time, so a very large batch takes a while to finish (about 0.15 seconds per small file here).
+- Processing runs inside the API process; unfinished files are re-queued when the server restarts.
 - The API and web page have no authentication or delete function.
 
 ## 7. Files added or changed

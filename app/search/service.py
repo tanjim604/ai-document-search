@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.ai_indexing.embeddings import embed_text
 from app.ai_indexing.vector_store import COLLECTION_NAME, ensure_collection
 from app.shared.models.document_content import DocumentContent
+from app.search.ranking import keyword_bonus, relevance
 from app.shared.models.file import File, ProcessingStatus
 
 CHUNKS_PER_RESULT = 5  # fetch extra chunks so grouping by file still fills `limit`
@@ -38,7 +39,8 @@ class SearchResult:
     extension: str
     storage_path: str
     summary: str | None
-    score: float
+    score: float  # calibrated relevance, 0 to 1 (see app/search/ranking.py)
+    semantic_score: float  # raw cosine similarity of the best chunk
     matched_excerpt: str
 
 
@@ -57,6 +59,7 @@ def search_documents(
     extension: str | None = None,
 ) -> list[SearchResult]:
     ensure_collection(client)
+    search_text = clean_query(query)
     conditions = []
     if extension:
         conditions.append(models.FieldCondition(
@@ -64,7 +67,7 @@ def search_documents(
         ))
     response = client.query_points(
         collection_name=COLLECTION_NAME,
-        query=embed_text(clean_query(query)),  # same model as the documents
+        query=embed_text(search_text),  # same model as the documents
         query_filter=models.Filter(must=conditions) if conditions else None,
         limit=limit * CHUNKS_PER_RESULT,
         score_threshold=min_score,
@@ -94,9 +97,13 @@ def search_documents(
         # Skip vectors whose file was removed or is being re-processed.
         if record is None or record.processing_status != ProcessingStatus.INDEXED.value:
             continue
+        summary = summaries.get(file_id)
+        bonus = keyword_bonus(search_text, filename=record.filename, summary=summary, text=text)
         results.append(SearchResult(
             file_id=file_id, filename=record.filename, extension=record.extension,
-            storage_path=record.storage_path, summary=summaries.get(file_id),
-            score=round(score, 4), matched_excerpt=make_excerpt(text),
+            storage_path=record.storage_path, summary=summary,
+            score=round(relevance(score, bonus), 4), semantic_score=round(score, 4),
+            matched_excerpt=make_excerpt(text),
         ))
+    results.sort(key=lambda r: (r.score, r.semantic_score), reverse=True)
     return results[:limit]

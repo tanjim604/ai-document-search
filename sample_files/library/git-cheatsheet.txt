@@ -1,0 +1,7 @@
+Git Cheat Sheet
+
+Basics: git status shows changes, git add stages them, git commit saves a snapshot and git push uploads commits to the remote repository.
+
+Branching: git switch -c feature creates a branch, git merge combines branches and git rebase replays commits on top of another branch.
+
+Undo: git restore discards changes in a file, git revert undoes a commit safely and git stash saves unfinished work.

@@ -14,8 +14,10 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
 from app.ingestion.routes import router as ingestion_router
+from app.pipeline.dependencies import resume_unfinished
 from app.pipeline.routes import router as pipeline_router
 from app.search.routes import router as search_router
+from app.shared.config.settings import get_settings
 from app.shared.database import init_db
 
 
@@ -25,6 +27,8 @@ async def lifespan(_: FastAPI):
     from app.ai_indexing.embeddings import get_model
 
     get_model()  # load the embedding model now, not during the first upload or search
+    if get_settings().auto_process:
+        resume_unfinished()  # finish files that a restart or crash left half-processed
     yield
 
 

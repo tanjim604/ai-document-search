@@ -57,6 +57,15 @@ header .spacer { flex: 1; }
 .btn.primary:hover { filter: brightness(1.08); background: var(--accent); }
 .btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .tabs { display: none; }
+#progress {
+  flex: none; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 20px;
+  background: var(--accent-soft); border-bottom: 1px solid var(--border); font-size: 13.5px;
+}
+#progress[hidden] { display: none; }
+#progress .bar { width: 180px; height: 6px; border-radius: 99px; background: var(--border); overflow: hidden; }
+#progress .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+#skipped summary { cursor: pointer; color: var(--warn); font-weight: 600; }
+#skipped ul { margin: 6px 0 0; padding-left: 18px; max-height: 120px; overflow: auto; color: var(--muted); }
 
 /* ---------- layout ---------- */
 main { flex: 1; min-height: 0; display: grid; grid-template-columns: 400px 1fr; }
@@ -188,6 +197,7 @@ section.chat { display: flex; flex-direction: column; min-height: 0; position: r
   body { height: 100dvh; }
   main { overflow: hidden; }
   .btn .label { display: none; }
+  #progress { padding: 8px 16px; }
 }
 </style>
 </head>
@@ -197,11 +207,21 @@ section.chat { display: flex; flex-direction: column; min-height: 0; position: r
   <div class="logo"><svg viewBox="0 0 32 32"><path d="M10 8h8l5 5v11H10z"/><path d="M18 8v5h5"/></svg></div>
   <h1>AI Document Search</h1>
   <div class="spacer"></div>
+  <button class="btn" id="folderBtn" type="button">
+    <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="label">Upload folder</span>
+  </button>
   <button class="btn primary" id="uploadBtn" type="button">
     <svg viewBox="0 0 24 24"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg><span class="label">Upload files</span>
   </button>
   <input type="file" id="fileInput" multiple hidden accept=".pdf,.docx,.txt,.csv,.xlsx,.png,.jpg,.jpeg">
+  <input type="file" id="folderInput" multiple hidden webkitdirectory>
 </header>
+<div id="progress" hidden>
+  <div class="bar"><i id="barFill"></i></div>
+  <span id="progressText"></span>
+  <button class="link" id="progressClose" type="button" hidden>Dismiss</button>
+  <details id="skipped" hidden><summary></summary><ul id="skipList"></ul></details>
+</div>
 
 <div class="tabs" role="tablist">
   <button type="button" data-go="chat" class="on">Ask</button>
@@ -355,50 +375,123 @@ function focusFile(id) {
   node.classList.add("flash");
   setTimeout(() => node.classList.remove("flash"), 1800);
 }
+let lastSnapshot = "";
 async function loadFiles() {
-  try { files = await api("/files?limit=500"); } catch (e) { toast("Could not load your files: " + e.message, "error"); return; }
-  renderLibrary();
+  let latest;
+  try { latest = await api("/files?limit=500"); } catch (e) { toast("Could not load your files: " + e.message, "error"); return; }
+  files = latest;
+  const snapshot = JSON.stringify(latest.map((f) => [f.file_id, f.status, f.summary]));
+  if (snapshot !== lastSnapshot) {  // redraw only on change, so scrolling and open panels are kept
+    lastSnapshot = snapshot;
+    const box = $("library"), top = box.scrollTop;
+    renderLibrary();
+    box.scrollTop = top;
+  }
   clearTimeout(pollTimer);
   if (files.some((f) => BUSY.has(f.status))) pollTimer = setTimeout(loadFiles, 2000);
 }
 
 /* ---------- upload ---------- */
+const ALLOWED = new Set(["pdf", "docx", "txt", "csv", "xlsx", "png", "jpg", "jpeg"]);
+const PARALLEL_UPLOADS = 4;
+let uploading = false;
+
+function setProgress(done, total, text) {
+  $("progress").hidden = false;
+  $("barFill").style.width = (total ? (done / total) * 100 : 0) + "%";
+  $("progressText").textContent = text;
+}
 async function uploadAll(list) {
-  const items = [...list];
-  if (!items.length) return;
-  for (const file of items) {
-    const body = new FormData();
-    body.append("file", file);
-    try {
-      const r = await api("/files", { method: "POST", body });
-      if (r.is_exact_duplicate) {
-        const original = files.find((f) => f.file_id === r.duplicate_of);
-        toast(`${file.name} is an exact copy of ${original ? original.filename : "a file you already have"}.`, "warn");
-      } else toast(`Uploaded ${file.name}. Reading it now...`);
-    } catch (e) { toast(`${file.name}: ${e.message}`, "error"); }
+  const picked = [...list];
+  if (!picked.length) return;
+  if (uploading) { toast("An upload is already running. Wait for it to finish.", "warn"); return; }
+  uploading = true;
+  const skipped = [];
+  const queue = [];
+  for (const file of picked) {
+    const ext = file.name.split(".").pop().toLowerCase();
+    if (file.name.startsWith(".")) continue;                       // hidden files such as .DS_Store
+    if (!ALLOWED.has(ext)) skipped.push(`${file.name}: type .${ext} is not supported`);
+    else queue.push(file);
+  }
+  const total = queue.length;
+  let done = 0, ok = 0, copies = 0;
+  $("skipped").hidden = true; $("progressClose").hidden = true;
+  setProgress(0, total, `Uploading 0 of ${total}...`);
+
+  async function worker() {
+    while (queue.length) {
+      const file = queue.shift();
+      const body = new FormData();
+      body.append("file", file);
+      try {
+        const r = await api("/files", { method: "POST", body });
+        ok++; if (r.is_exact_duplicate) copies++;
+      } catch (e) { skipped.push(`${file.name}: ${e.message}`); }
+      done++;
+      setProgress(done, total, `Uploading ${done} of ${total}...`);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(PARALLEL_UPLOADS, total) }, worker));
+  uploading = false;
+
+  let text = `Uploaded ${ok} of ${total} file${total === 1 ? "" : "s"}. Reading them now...`;
+  if (copies) text += ` ${copies} ${copies === 1 ? "is an exact copy" : "are exact copies"} of files you already have.`;
+  setProgress(total, total, text);
+  $("progressClose").hidden = false;
+  if (skipped.length) {
+    $("skipped").hidden = false;
+    $("skipped").querySelector("summary").textContent = `${skipped.length} not uploaded`;
+    $("skipList").replaceChildren(...skipped.map((t) => el("li", { text: t })));
   }
   await loadFiles();
 }
+$("progressClose").onclick = () => { $("progress").hidden = true; };
 $("uploadBtn").onclick = () => $("fileInput").click();
+$("folderBtn").onclick = () => $("folderInput").click();
 $("fileInput").onchange = (e) => { uploadAll(e.target.files); e.target.value = ""; };
+$("folderInput").onchange = (e) => { uploadAll(e.target.files); e.target.value = ""; };
+
+// Dropped folders: walk the directory tree (a plain file list would only contain the folder).
+async function filesFromDrop(dt) {
+  const entries = [...dt.items].map((i) => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  if (!entries.length) return [...dt.files];
+  const out = [];
+  async function walk(entry) {
+    if (entry.isFile) out.push(await new Promise((res, rej) => entry.file(res, rej)));
+    else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      let batch;
+      do {  // readEntries returns at most ~100 entries per call
+        batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+        for (const child of batch) await walk(child);
+      } while (batch.length);
+    }
+  }
+  for (const entry of entries) await walk(entry);
+  return out;
+}
 let dragDepth = 0;
 addEventListener("dragenter", (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) { dragDepth++; $("drop").classList.add("on"); } });
 addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("drop").classList.remove("on"); } });
 addEventListener("dragover", (e) => e.preventDefault());
-addEventListener("drop", (e) => { e.preventDefault(); dragDepth = 0; $("drop").classList.remove("on"); uploadAll(e.dataTransfer.files); });
+addEventListener("drop", async (e) => {
+  e.preventDefault(); dragDepth = 0; $("drop").classList.remove("on");
+  uploadAll(await filesFromDrop(e.dataTransfer));
+});
 
 /* ---------- chat ---------- */
 function highlight(text, query) {
-  const words = [...new Set(query.toLowerCase().split(/\W+/).filter((w) => w.length > 3))];
+  const words = [...new Set(query.toLowerCase().split(/\W+/).filter((w) => w.length > 3).map((w) => (w.length > 4 ? w.replace(/s$/, "") : w)))];
   const frag = document.createDocumentFragment();
   if (!words.length) { frag.append(text); return frag; }
-  const re = new RegExp("(" + words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "gi");
+  const re = new RegExp("\\b(" + words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "gi");  // word starts only
   text.split(re).forEach((part, i) => frag.append(i % 2 ? el("b", { text: part }) : part));
   return frag;
 }
 function matchLabel(score) {
-  if (score >= 0.5) return ["strong", "Strong match"];
-  if (score >= 0.35) return ["good", "Good match"];
+  if (score >= 0.7) return ["strong", "Strong match"];
+  if (score >= 0.45) return ["good", "Good match"];
   return ["possible", "Possible match"];
 }
 function resultCard(r, query) {

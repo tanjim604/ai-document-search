@@ -212,3 +212,65 @@ def test_several_uploads_at_once_are_all_processed(api):
 
     statuses = {f["file_id"]: f["status"] for f in api.get("/files").json()}
     assert len(statuses) == 5 and set(statuses.values()) == {"indexed"}
+
+
+def test_filename_match_beats_a_semantically_closer_document(api):
+    proposal = upload(api, "Project_Proposal.txt", (
+        "This proposal describes our project. We propose to build a document search tool, "
+        "list the goals, the team, the schedule and the expected outcomes of the project.").encode())
+    upload(api, "history.txt", AI_HISTORY.encode())
+    upload(api, "cooking.txt", COOKING.encode())
+
+    results = api.get("/search", params={"q": "find the project proposal", "min_score": 0}).json()["results"]
+
+    assert results[0]["file_id"] == proposal["file_id"]
+    assert all(0 <= r["score"] <= 1 and "semantic_score" in r for r in results)
+
+
+def test_queue_worker_processes_every_queued_file(session_factory, storage, monkeypatch):
+    import time
+
+    from app.pipeline import dependencies
+
+    monkeypatch.setattr("app.extraction.storage_bridge.get_storage", lambda: storage)
+    qdrant = QdrantClient(":memory:")
+    monkeypatch.setattr(dependencies, "get_session_factory", lambda: session_factory)
+    monkeypatch.setattr(dependencies, "get_qdrant", lambda: qdrant)
+
+    from app.ingestion.service import ingest_file
+
+    db = session_factory()
+    ids = [
+        ingest_file(db, storage, f"doc{i}.txt", f"{AI_HISTORY} Copy number {i}.".encode(), 1_000_000).file.id
+        for i in range(12)
+    ]
+    run = dependencies.get_pipeline_runner()
+    for file_id in ids:
+        run(file_id)
+    dependencies._jobs.join()
+
+    from app.shared.models.file import File
+
+    statuses = {db.get(File, i).processing_status for i in ids}
+    assert statuses == {"indexed"}
+
+
+def test_unfinished_files_are_resumed_on_startup(session_factory, storage, monkeypatch):
+    from app.ingestion.service import ingest_file
+    from app.pipeline import dependencies
+
+    monkeypatch.setattr("app.extraction.storage_bridge.get_storage", lambda: storage)
+    monkeypatch.setattr(dependencies, "get_session_factory", lambda: session_factory)
+    monkeypatch.setattr(dependencies, "get_qdrant", lambda: QdrantClient(":memory:"))
+
+    db = session_factory()
+    stuck = ingest_file(db, storage, "stuck.txt", AI_HISTORY.encode(), 1_000_000).file.id
+
+    assert dependencies.resume_unfinished() == 1
+    dependencies._jobs.join()
+
+    from app.shared.models.file import File
+
+    db.expire_all()
+    assert db.get(File, stuck).processing_status == "indexed"
+    assert dependencies.resume_unfinished() == 0

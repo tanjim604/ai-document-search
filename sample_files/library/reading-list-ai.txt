@@ -1,0 +1,7 @@
+Reading List: Artificial Intelligence
+
+Start with a general introduction to machine learning, then read about neural networks, optimization and evaluation of models.
+
+Recommended topics: natural language processing, computer vision, reinforcement learning and the ethics of artificial intelligence.
+
+For depth, read the original papers on attention, word embeddings and convolutional networks, and implement a small model yourself.

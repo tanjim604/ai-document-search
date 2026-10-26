@@ -57,7 +57,21 @@ curl "localhost:8000/search?q=history+of+artificial+intelligence"
 curl localhost:8000/files/<file_id>/similar
 ```
 
-Run the whole evaluation on the sample files against a running server:
+Upload a whole folder (all sub-folders, supported types only) and watch it process:
+
+```bash
+python scripts/bulk_upload.py sample_files/library http://localhost:8000
+```
+
+The web page also has an **Upload folder** button, and you can drop a folder onto the page.
+
+Recreate the 51-file sample library (PDF, DOCX, TXT, CSV, XLSX) in `sample_files/library/`:
+
+```bash
+python scripts/generate_samples.py
+```
+
+Run the whole evaluation on the original sample files against a running server:
 
 ```bash
 python scripts/evaluate.py http://localhost:8000
@@ -88,7 +102,7 @@ The end-to-end tests load the real embedding model. The first run downloads it (
 
 | Symptom | Cause / fix |
 |---|---|
-| File stuck at `uploaded` | Processing is in the background; wait, or `POST /files/<id>/process` |
+| File stuck at `uploaded` | Files are processed one at a time in the background; large batches take a while. Anything unfinished restarts automatically when the server restarts, or call `POST /files/<id>/process` |
 | Status `ocr_needed` | Scanned PDF or image with no text. OCR is not built yet; by design it is not embedded |
 | Status `failed` | Call `POST /files/<id>/process`; the response contains the error |
 | `Storage folder is already accessed by another instance` | Embedded Qdrant allows one process. Stop the other server, or use the Qdrant container |

@@ -16,7 +16,8 @@ class SearchHit(BaseModel):
     filename: str
     extension: str
     summary: str | None
-    score: float
+    score: float  # relevance, 0 to 1
+    semantic_score: float  # raw cosine similarity of the best chunk
     matched_excerpt: str
     storage_path: str
 
@@ -30,7 +31,7 @@ class SearchResponse(BaseModel):
 def search(
     q: str = Query(..., min_length=1, max_length=500, description="What you are looking for"),
     limit: int = Query(10, ge=1, le=50),
-    min_score: float = Query(0.2, ge=0, le=1, description="Hide weaker matches"),
+    min_score: float = Query(0.2, ge=0, le=1, description="Hide matches whose raw cosine similarity is below this"),
     extension: str | None = Query(None, description="Only this file type, e.g. pdf"),
     db: Session = Depends(get_db),
     client: QdrantClient = Depends(get_qdrant),

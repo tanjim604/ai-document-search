@@ -111,13 +111,13 @@ Unless `AUTO_PROCESS_UPLOADS=false`, the server then runs extraction, summary an
 
 ### `GET /search?q=...` → `200`
 
-Request words such as "Pull up the" or "Find me a" are removed before matching. Query parameters: `q` (required, 1-500 characters), `limit` (1-50, default 10), `min_score` (0-1, default 0.2), `extension` (e.g. `pdf`). Only `indexed` files are returned; each file appears once with its best-matching chunk.
+Request words such as "Pull up the" or "Find me a" are removed before matching. Query parameters: `q` (required, 1-500 characters), `limit` (1-50, default 10), `min_score` (0-1, default 0.2), `extension` (e.g. `pdf`). Only `indexed` files are returned; each file appears once with its best-matching chunk. `score` is a calibrated relevance from 0 to 1 (semantic similarity plus a bonus for query words found in the filename, summary or text; see `app/search/ranking.py`), and `semantic_score` is the raw cosine similarity. Results are sorted by `score`.
 
 ```json
 { "query": "research paper about AI evolution",
   "results": [{ "file_id": "f_123", "filename": "ai-evolution.pdf", "extension": "pdf",
                 "summary": "A paper describing the history and evolution of AI.",
-                "score": 0.59, "matched_excerpt": "The development of AI progressed...",
+                "score": 0.84, "semantic_score": 0.46, "matched_excerpt": "The development of AI progressed...",
                 "storage_path": "data/uploads/pdf/f_123.pdf" }] }
 ```
 
