@@ -18,6 +18,16 @@ Uploaded originals, PostgreSQL data and the Qdrant index live in Docker volumes,
 
 > On a Mac without Docker Desktop: `brew install colima docker docker-compose && colima start`, then use `docker-compose` instead of `docker compose`.
 
+## 1b. Run it online from GitHub (Codespaces)
+
+GitHub itself cannot host this backend (GitHub Pages serves static files only), but a Codespace can run the whole Docker stack from the repository:
+
+1. On GitHub open the repository, then **Code > Codespaces > Create codespace on feature/search-integration** (or `main` after merging).
+2. Wait a few minutes: `.devcontainer/devcontainer.json` starts Docker Compose and loads the sample documents.
+3. Open the **Ports** tab and click the globe icon next to port 8000. To share the link, right-click the port and set **Port Visibility > Public**.
+
+A codespace stops after inactivity (the free personal allowance is limited), so this suits demos rather than permanent hosting. For a permanent site, deploy the same `Dockerfile` and `docker-compose.yml` to a host that runs containers (Render, Railway or Fly.io); Vercel cannot run it because PyTorch, PostgreSQL and Qdrant do not fit its serverless functions.
+
 ## 2. Run without Docker (quick local development)
 
 ```bash
