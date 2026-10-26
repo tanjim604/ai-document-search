@@ -34,6 +34,7 @@ services:
       QDRANT_PATH: ""            # empty = use the Qdrant server above, not an embedded folder
       UPLOAD_DIR: /data/uploads
       STORAGE_BACKEND: local
+      APP_PASSWORD: ${APP_PASSWORD:-}   # set in .env to require a password (use this before sharing a link)
     volumes:
       - uploads_data:/data/uploads
     depends_on:

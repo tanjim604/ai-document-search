@@ -28,6 +28,16 @@ GitHub itself cannot host this backend (GitHub Pages serves static files only), 
 
 A codespace stops after inactivity (the free personal allowance is limited), so this suits demos rather than permanent hosting. For a permanent site, deploy the same `Dockerfile` and `docker-compose.yml` to a host that runs containers (Render, Railway or Fly.io); Vercel cannot run it because PyTorch, PostgreSQL and Qdrant do not fit its serverless functions.
 
+## 1c. Share a temporary link with friends or a professor (free)
+
+Run this on the machine where the stack is running. It needs no account and exposes your local app through a random public address for as long as the command runs.
+
+1. Set a password so strangers cannot upload to your machine: put `APP_PASSWORD=choose-something` in `.env`, then `docker compose up -d` (the page asks for it; any username works).
+2. `brew install cloudflared` (once), then `cloudflared tunnel --url http://localhost:8000`.
+3. Send the `https://....trycloudflare.com` address from the output, plus the password.
+
+The link changes every time you start the tunnel, and it stops working when you close the command or the Mac sleeps.
+
 ## 2. Run without Docker (quick local development)
 
 ```bash
