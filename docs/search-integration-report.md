@@ -125,6 +125,9 @@ Design points: the file bytes live in their own table so listing or searching fi
 
 I moved the 93 existing files with a migration tool (`python -m app.shared.storage.migrate`). It copies each file into the database, reads the copy back and compares its SHA-256 with the fingerprint recorded at upload time, and only then updates the record; a copy that does not match is discarded, and local copies are deleted only if `--delete-old` is passed. Result: 93 moved, 0 missing, 0 mismatched. As an independent check I then downloaded all 93 files through the running app and compared each one's SHA-256 with the stored fingerprint: 93 of 93 matched. A new upload went straight into the database. The old disk copies were left in place and can be removed with `--delete-old`.
 
+### 3.9g Network exposure
+`docker-compose.yml` originally published the PostgreSQL (default password) and Qdrant (no password) ports on every network interface, so anyone on the same network could have reached them. They are now bound to `127.0.0.1`, which limits them to the computer running Docker. Only the web app port is reachable from outside, and it asks for the shared password when `APP_PASSWORD` is set.
+
 ### 3.10 Docker
 `Dockerfile` (Python 3.11, Tesseract from `apt`, CPU-only PyTorch, the embedding and image captioning models baked into the image), `docker-compose.yml` (PostgreSQL 16 with a healthcheck, Qdrant, the API, named volumes; uploaded files are stored in PostgreSQL) and `.dockerignore`. The database password comes from an environment variable. `QDRANT_PATH` is set to empty in compose because `.env.example` sets it to a folder, which would otherwise override the Qdrant server.
 
