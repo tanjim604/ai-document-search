@@ -33,6 +33,12 @@ from app.shared.database import get_db, init_db  # noqa: E402
 from app.shared.models import Base  # noqa: E402
 from app.shared.storage import LocalStorage, get_storage  # noqa: E402
 
+@pytest.fixture(autouse=True)
+def no_app_password(monkeypatch):
+    """A developer's local .env password must not lock the tests out."""
+    monkeypatch.delenv("APP_PASSWORD", raising=False)
+
+
 TEST_MAX_UPLOAD_BYTES = 10_000  # small limit so size tests are fast
 
 

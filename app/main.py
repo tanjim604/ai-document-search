@@ -28,8 +28,10 @@ from app.shared.database import init_db
 async def lifespan(_: FastAPI):
     init_db()  # create missing tables when the server starts
     from app.ai_indexing.embeddings import get_model
+    from app.vision import warm_up
 
     get_model()  # load the embedding model now, not during the first upload or search
+    warm_up()  # and the image captioning model
     if get_settings().auto_process:
         resume_unfinished()  # finish files that a restart or crash left half-processed
     yield

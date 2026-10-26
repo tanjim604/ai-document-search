@@ -93,13 +93,25 @@ The first version started one background thread per upload. When 50 files were u
 
 I generated a 51-file sample library (`scripts/generate_samples.py`, output in `sample_files/library/`: 16 PDF, 10 DOCX, 16 TXT, 5 CSV, 4 XLSX, covering AI, science, history, cooking, finance, travel and office documents, with one exact duplicate and one near duplicate). Uploaded together with the 8 original samples, 58 of 59 files were indexed (the other is the scanned PNG, flagged `ocr_needed`, and the one fake PDF in the original samples is correctly rejected). The 51-file batch uploaded in 1.3 seconds and finished indexing in 7.4 seconds.
 
+### 3.9b Upload dialog and animations
+Choosing files (button, folder or drag and drop) now opens a dialog where each file can be renamed before it is saved. The extension is fixed and shown next to the name; leaving a name unchanged keeps the original, and characters that are illegal in filenames are removed. Unsupported and hidden files are listed as skipped with the reason. While uploading, each row shows a spinner that turns into a drawn checkmark (green), an exact-copy notice (amber) or a shake with the error (red), and a progress bar fills. When it finishes, a large checkmark draws in, the dialog closes by itself if everything succeeded, and the new files slide into the top of the library. Animations are switched off for people who set "reduce motion" in their system.
+
+### 3.9c Images and scanned documents (`app/vision/`)
+Photos can be anything, such as a meeting or a dog, and a photo has no text for the extraction module to read, so it used to be flagged `ocr_needed` and left unsearchable. Extraction still reports that, and the pipeline now reads these files itself (`app/pipeline/vision_step.py`) and then saves the result exactly like normal extraction, so summaries, embeddings and search need no special cases:
+
+- **What the picture shows:** the BLIP captioning model (`Salesforce/blip-image-captioning-base`, local and free) produces a description that is stored as "This image shows ...". Captions that are mostly punctuation (the model rambles on pictures of plain text) are discarded.
+- **Writing in the picture:** Tesseract OCR reads slides, whiteboards and receipts, and every page of a scanned PDF (up to 30 pages). Output with fewer than 10 letters or digits is treated as noise.
+- **Search and display:** the library and search results show a small preview of each photo. A file only stays `ocr_needed` if nothing at all could be read.
+
+Each tool is optional, so one failing does not block the other. Results in the Docker stack with real photos: a Labrador photo became "a small dog standing in the grass" and was found by "picture of a dog" (94%); a COCO photo became "two cats sleeping on a couch" and was found by "photo of two cats on a sofa" (100%); a generated meeting-agenda image had its text read by OCR and was found by "show me the meeting agenda image" (91%) and "which file mentions the Q4 budget review" (78%); the scanned sample page from the original samples is now read and indexed. The captioning model is small, so descriptions are short and generic (it called the Labrador a "small dog"), and it can miss detail.
+
 ### 3.10 Docker
 `Dockerfile` (Python 3.11, CPU-only PyTorch, embedding model baked into the image), `docker-compose.yml` (PostgreSQL 16 with a healthcheck, Qdrant, the API, named volumes) and `.dockerignore`. The database password comes from an environment variable. `QDRANT_PATH` is set to empty in compose because `.env.example` sets it to a folder, which would otherwise override the Qdrant server.
 
 ### 3.11 Tests
 - `tests/integration/test_end_to_end.py` (17 tests): upload → extraction → summary → indexing → similarity → search with the real model and an in-memory Qdrant. It covers reworded and chat-style queries, one result per document, the extension filter, an empty index, invalid input, every similarity label, OCR-needed files, reprocessing, the file list, download, the served web page, and five simultaneous uploads.
 - `tests/test_summarization.py` (6 tests) and `tests/test_query_cleaning.py` (5 tests) and `tests/test_ranking.py` (5 tests).
-- **Result: 137 tests pass.**
+- **Result: 152 tests pass, 1 skipped** (the skipped one needs Tesseract installed on the host; it runs inside Docker).
 - `scripts/evaluate.py` runs the proposal's evaluation on the sample files against a running server.
 
 ### 3.12 Documentation
@@ -125,7 +137,7 @@ I ran `scripts/evaluate.py` against a local server (SQLite and embedded Qdrant) 
 | Re-upload of `ai-evolution.pdf` | `exact_duplicate`, 1.000 |
 | `ai-evolution-edited.pdf` | `near_duplicate`, 0.997 |
 | `ai-milestones.csv` vs. the paper | `related`, 0.55 |
-| `scanned-page.png` | `ocr_needed` |
+| `scanned-page.png` (original sample) | now read by OCR and indexed |
 | "Pull up the research paper about AI evolution" | `ai-evolution.pdf` ranked first (46%) |
 | "history of artificial intelligence" | AI paper files ranked first |
 | "how much money is budgeted" | `project-budget.xlsx` ranked first |
@@ -135,7 +147,7 @@ The exact copy and the edited copy also appear as separate search results becaus
 
 ## 6. Limitations
 
-- No real OCR yet; scanned files are only flagged.
+- Photo descriptions come from a small captioning model, so they are short and sometimes imprecise; OCR works best on clean, horizontal printed text and is weaker on handwriting.
 - Summaries are extractive, not written by a language model.
 - Thresholds were tuned on 8 small sample files and could shift with more varied documents.
 - Embedded-Qdrant mode (no Docker) allows only one running server process.

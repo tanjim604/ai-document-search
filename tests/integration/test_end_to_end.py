@@ -54,6 +54,7 @@ def require_embedding_model():
 def api(client, session_factory, test_settings, storage, monkeypatch):
     # The extraction module calls get_storage() directly, not as a FastAPI dependency.
     monkeypatch.setattr("app.extraction.storage_bridge.get_storage", lambda: storage)
+    monkeypatch.setattr("app.pipeline.vision_step.get_storage", lambda: storage)
     qdrant = QdrantClient(":memory:")
 
     def run(file_id):
@@ -274,3 +275,39 @@ def test_unfinished_files_are_resumed_on_startup(session_factory, storage, monke
     db.expire_all()
     assert db.get(File, stuck).processing_status == "indexed"
     assert dependencies.resume_unfinished() == 0
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+def test_photo_is_described_and_found_by_what_it_shows(api, monkeypatch):
+    descriptions = {"dog.png": "This image shows a brown dog lying on a sofa in a living room.",
+                    "meeting.png": "This image shows a group of people sitting around a table in a meeting."}
+    seen = {}
+
+    def fake_read(data, extension):  # stands in for the captioning model
+        name = seen["name"]
+        return descriptions[name]
+
+    monkeypatch.setattr("app.pipeline.vision_step.read_file", fake_read)
+    ids = {}
+    for name in descriptions:
+        seen["name"] = name
+        ids[name] = upload(api, name, PNG + name.encode(), "image/png")["file_id"]
+
+    assert [f["status"] for f in api.get("/files").json()] == ["indexed", "indexed"]
+    item = {f["file_id"]: f for f in api.get("/files").json()}[ids["dog.png"]]
+    assert "dog" in item["summary"]
+
+    dog = api.get("/search", params={"q": "show me the picture of my dog"}).json()["results"]
+    assert dog[0]["file_id"] == ids["dog.png"]
+    team = api.get("/search", params={"q": "photo of people in a meeting"}).json()["results"]
+    assert team[0]["file_id"] == ids["meeting.png"]
+
+
+def test_image_with_nothing_readable_stays_ocr_needed(api, monkeypatch):
+    monkeypatch.setattr("app.pipeline.vision_step.read_file", lambda data, extension: "")
+    uploaded = upload(api, "blank.png", PNG, "image/png")
+
+    assert api.get(f"/files/{uploaded['file_id']}").json()["status"] == "ocr_needed"
+    assert api.get("/search", params={"q": "blank"}).json()["results"] == []

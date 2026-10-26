@@ -16,6 +16,11 @@ sentence-transformers
 numpy
 qdrant-client
 
+# Images and scanned documents (Tanjim)
+Pillow>=10.0
+pytesseract>=0.3.10   # needs the Tesseract program installed (apt/brew install tesseract)
+transformers>=4.40     # image captioning model
+
 # Testing
 pytest>=8.0
 httpx>=0.27                  # used by FastAPI's TestClient

@@ -14,6 +14,7 @@ from pathlib import Path
 import pymupdf
 from docx import Document
 from openpyxl import Workbook
+from PIL import Image, ImageDraw
 
 OUT = Path(__file__).resolve().parent.parent / "sample_files" / "library"
 
@@ -266,6 +267,17 @@ def main() -> None:
         for row in rows:
             workbook.active.append(row)
         workbook.save(OUT / name)
+
+    # Images that contain writing, to try OCR (photos without text are described by the captioning model).
+    for name, lines in {
+        "meeting-agenda-slide.png": ["Project Kickoff Meeting", "Agenda", "1. Budget review for Q4", "2. Hiring plan and deadlines", "3. Website launch schedule"],
+        "whiteboard-todo.png": ["TODO this week", "- finish the literature review", "- email the supervisor", "- book the demo room"],
+    }.items():
+        image = Image.new("RGB", (1200, 700), "white")
+        draw = ImageDraw.Draw(image)
+        for i, line in enumerate(lines):
+            draw.text((60, 60 + i * 110), line, fill="black", font_size=60 if i == 0 else 48)
+        image.save(OUT / name)
 
     # An exact duplicate and a near duplicate, for the similarity labels.
     shutil.copy(OUT / "sourdough-bread-recipe.txt", OUT / "sourdough-bread-recipe-copy.txt")

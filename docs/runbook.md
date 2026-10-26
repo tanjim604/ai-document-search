@@ -59,6 +59,8 @@ uvicorn app.main:app --reload
 
 ## 3. Use it
 
+**Photos and scans.** Any PNG or JPEG is read automatically: a captioning model describes what the picture shows (for example "a dog standing in the grass" or "a group of people sitting around a table") and Tesseract OCR reads any writing in it, so you can find a photo by describing it ("picture of a dog", "the meeting slide with the budget agenda"). Scanned PDFs are read page by page with OCR (first 30 pages). Both need the Docker setup, or Tesseract on your machine for local runs (`brew install tesseract`; the captioning model downloads about 1 GB the first time). Without Tesseract, photos are still described and only the OCR part is skipped.
+
 Easiest: open <http://localhost:8000>, upload files (button or drag and drop), then type what you are looking for, for example `Pull up the research paper about AI evolution`. A link such as `http://localhost:8000/?q=budget` runs a search on load.
 
 Or use the API directly:

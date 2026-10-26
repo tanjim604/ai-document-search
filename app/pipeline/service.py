@@ -2,7 +2,8 @@
 The full document pipeline (Tanjim, integration). Ties the four modules together:
 
     uploaded -> extracting -> extracted -> indexing -> indexed
-                  |-> ocr_needed (no text)      any step -> failed
+                  |-> photo / scan: read by app.vision first
+                  |-> ocr_needed (nothing readable)    any step -> failed
 
     1. extraction  (Diya)   extract_and_save()      text + ordered chunks in the database
     2. summary     (Tanjim) summarize_text()        saved on DocumentContent.summary
@@ -21,6 +22,7 @@ from app.ai_indexing.vector_store import ensure_collection
 from app.extraction.service import extract_and_save
 from app.ingestion.service import FileRecordNotFound, get_file, update_processing_status
 from app.pipeline.similarity import find_document_matches
+from app.pipeline.vision_step import extract_with_vision
 from app.shared.config.settings import get_settings
 from app.shared.models.document_chunk import DocumentChunk
 from app.shared.models.document_content import DocumentContent
@@ -50,12 +52,17 @@ def process_document(db: Session, client: QdrantClient, file_id: str) -> Pipelin
     except Exception as error:  # extract_and_save already marked the file failed
         return PipelineResult(file_id, ProcessingStatus.FAILED.value, error=str(error))
 
-    if extracted["status"] == "ocr_needed":
-        update_processing_status(db, file_id, ProcessingStatus.OCR_NEEDED)
-        return PipelineResult(
-            file_id, ProcessingStatus.OCR_NEEDED.value,
-            error="No extractable text. OCR is needed.",
-        )
+    if extracted["status"] == "ocr_needed":  # photo or scanned PDF: read it with vision/OCR
+        try:
+            extracted = extract_with_vision(db, file_id)
+        except Exception as error:
+            db.rollback()
+            update_processing_status(db, file_id, ProcessingStatus.FAILED)
+            return PipelineResult(file_id, ProcessingStatus.FAILED.value, error=str(error))
+        if extracted["status"] == "ocr_needed":
+            return PipelineResult(
+                file_id, ProcessingStatus.OCR_NEEDED.value, error=extracted.get("error"),
+            )
     if extracted["status"] != "extracted":
         return PipelineResult(
             file_id, ProcessingStatus.FAILED.value, error=extracted.get("error")
