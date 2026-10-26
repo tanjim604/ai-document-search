@@ -33,6 +33,17 @@ class Settings:
     # a cloud adapter (S3 / Azure Blob / Google Cloud Storage) can be added later.
     storage_backend: str
 
+    # Search and integration settings (Tanjim). They have defaults so that
+    # code which builds Settings(...) with only the fields above keeps working.
+
+    # Run extraction -> summary -> indexing in the background after POST /files.
+    auto_process: bool = True
+
+    # Similarity labels for a new file versus files already indexed. The score
+    # is the document-level score from app.pipeline.similarity (0 to 1).
+    near_duplicate_threshold: float = 0.95
+    related_threshold: float = 0.45
+
 
 def load_settings() -> Settings:
     max_mb = int(os.getenv("MAX_UPLOAD_SIZE_MB", "25"))
@@ -44,6 +55,9 @@ def load_settings() -> Settings:
         upload_dir=os.getenv("UPLOAD_DIR", "data/uploads"),
         max_upload_size_bytes=max_mb * 1024 * 1024,
         storage_backend=os.getenv("STORAGE_BACKEND", "local"),
+        auto_process=os.getenv("AUTO_PROCESS_UPLOADS", "true").lower() == "true",
+        near_duplicate_threshold=float(os.getenv("NEAR_DUPLICATE_THRESHOLD", "0.95")),
+        related_threshold=float(os.getenv("RELATED_THRESHOLD", "0.45")),
     )
 
 

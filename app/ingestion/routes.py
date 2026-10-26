@@ -4,7 +4,9 @@ Ingestion API endpoints.
     POST /files            upload one file (multipart form field name: "file")
     GET  /files/{file_id}  processing status and details for one file
 """
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from typing import Callable
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.ingestion.schemas import FileDetailsResponse, FileUploadResponse
@@ -14,6 +16,7 @@ from app.ingestion.service import (
     get_file,
     ingest_file,
 )
+from app.pipeline.dependencies import get_pipeline_runner
 from app.shared.config.settings import Settings, get_settings
 from app.shared.database import get_db
 from app.shared.storage import StorageBackend, get_storage
@@ -43,9 +46,11 @@ def read_upload_limited(upload: UploadFile, max_bytes: int) -> bytes:
 @router.post("", status_code=201, response_model=FileUploadResponse)
 def upload_file(
     file: UploadFile,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     storage: StorageBackend = Depends(get_storage),
     settings: Settings = Depends(get_settings),
+    run_pipeline: Callable[[str], None] = Depends(get_pipeline_runner),
 ) -> FileUploadResponse:
     try:
         data = read_upload_limited(file, settings.max_upload_size_bytes)
@@ -56,6 +61,9 @@ def upload_file(
         raise HTTPException(status_code=error.status_code, detail=str(error))
     finally:
         file.file.close()
+
+    if settings.auto_process:  # extraction, summary and indexing run after the response
+        background.add_task(run_pipeline, result.file.id)
 
     return FileUploadResponse.from_record(result.file, result.duplicate_of)
 

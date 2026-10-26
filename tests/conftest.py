@@ -82,6 +82,7 @@ def test_settings(upload_root):
         upload_dir=str(upload_root),
         max_upload_size_bytes=TEST_MAX_UPLOAD_BYTES,
         storage_backend="local",
+        auto_process=False,  # ingestion tests only check the upload itself
     )
 
 

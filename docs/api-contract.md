@@ -25,19 +25,19 @@ Code: `app/shared/models/file.py` · Table: `files` · SQL: [`docs/sql/files_tab
 | `processing_status` | string | See section 2 |
 | `created_at` | timestamp with time zone | When the upload was saved |
 
-### DocumentContent · owner: Diya (summary: Zahid) · *Not built yet*
+### DocumentContent · owner: Diya (summary: Tanjim for now) · built
 
-`file_id`, `raw_text`, `summary`
+`file_id`, `raw_text`, `summary` (2-3 sentence extractive summary, written by `app/summarization`)
 
-### DocumentChunk · owner: Diya · *Not built yet*
+### DocumentChunk · owner: Diya · built
 
 `id`, `file_id`, `chunk_index` (0, 1, 2, ...), `text`
 
-### SimilarityMatch · owner: Zahid · *Not built yet*
+### SimilarityMatch · owner: Zahid · built
 
 `source_file_id`, `matched_file_id`, `similarity_score`, `match_type`
 
-`match_type` for identical files is `exact_duplicate` with score `1.0` (team plan). Zahid names the near-duplicate and related values.
+`match_type` is `exact_duplicate` (score `1.0`, same SHA-256), `near_duplicate` or `related`. Near-duplicate and related scores are document-level (see `app/pipeline/similarity.py`); thresholds are settings (`NEAR_DUPLICATE_THRESHOLD` 0.95, `RELATED_THRESHOLD` 0.45). A match is stored once, from the newer file's side.
 
 ---
 
@@ -55,6 +55,7 @@ uploaded → extracting → extracted → indexing → indexed
 | `extracted` | Diya | Text and chunks saved |
 | `indexing` | Zahid | Embedding started |
 | `indexed` | Zahid | Every chunk is stored in the vector database |
+| `ocr_needed` | Tanjim (pipeline) | Scanned PDF or image: no text, so nothing is embedded |
 | `failed` | Whoever hit the error | Processing stopped |
 
 The values live in `ProcessingStatus` (`app/shared/models/file.py`). Change a status with:
@@ -74,8 +75,11 @@ update_processing_status(db, file_id, ProcessingStatus.EXTRACTED)
 |---|---|---|---|
 | `POST /files` | Upload one file (multipart field `file`) | Tahmid | Built |
 | `GET /files/{file_id}` | Status and details of one file | Tahmid | Built |
-| `GET /files/{file_id}/similar` | Duplicate and related-file matches | Not decided | Not built yet |
-| `GET /search?q=...` | Semantic search results | Tanjim | Not built yet |
+| `GET /files` | List files and status (`limit`, `offset`) | Tanjim | Built |
+| `POST /files/{file_id}/process` | Run or re-run extraction, summary, indexing | Tanjim | Built |
+| `GET /files/{file_id}/similar` | Duplicate and related-file matches | Tanjim | Built |
+| `GET /search?q=...` | Semantic search, one result per document | Tanjim | Built |
+| `GET /health` | Liveness check | Tanjim | Built |
 
 ### `POST /files` → `201`
 
@@ -99,14 +103,32 @@ Errors: `400` empty file / content does not match extension / no filename · `41
 
 The same fields as above without the two duplicate fields, plus `created_at`. Unknown ID → `404`.
 
-### `GET /search?q=...` (example from the team plan, Tanjim to finalise)
+### `POST /files` after the upload
+
+Unless `AUTO_PROCESS_UPLOADS=false`, the server then runs extraction, summary and indexing in the background. Poll `GET /files/{file_id}` until `status` is `indexed`, `ocr_needed` or `failed`.
+
+### `GET /search?q=...` → `200`
+
+Query parameters: `q` (required, 1-500 characters), `limit` (1-50, default 10), `min_score` (0-1, default 0.2), `extension` (e.g. `pdf`). Only `indexed` files are returned; each file appears once with its best-matching chunk.
 
 ```json
 { "query": "research paper about AI evolution",
-  "results": [{ "file_id": "f_123", "filename": "ai-evolution.pdf",
+  "results": [{ "file_id": "f_123", "filename": "ai-evolution.pdf", "extension": "pdf",
                 "summary": "A paper describing the history and evolution of AI.",
-                "score": 0.91, "matched_excerpt": "The development of AI progressed..." }] }
+                "score": 0.59, "matched_excerpt": "The development of AI progressed...",
+                "storage_path": "data/uploads/pdf/f_123.pdf" }] }
 ```
+
+### `GET /files/{file_id}/similar` → `200`
+
+```json
+{ "file_id": "f_2", "matches": [
+  { "file_id": "f_1", "filename": "ai-evolution.pdf", "match_type": "near_duplicate", "score": 0.997 } ] }
+```
+
+### `POST /files/{file_id}/process` → `200`
+
+`{"file_id", "status", "error", "chunks", "summary"}`. Unknown ID → `404`.
 
 ---
 

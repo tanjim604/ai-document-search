@@ -30,6 +30,7 @@ class ProcessingStatus(str, Enum):
         uploaded              Tahmid (ingestion)
         extracting, extracted Diya   (extraction)
         indexing, indexed     Zahid  (AI indexing)
+        ocr_needed            Tanjim (pipeline): scanned PDF / image, no text to embed
         failed                whoever hit the error
 
     The database column is a plain string (not a database ENUM), so the team
@@ -41,6 +42,7 @@ class ProcessingStatus(str, Enum):
     EXTRACTED = "extracted"
     INDEXING = "indexing"
     INDEXED = "indexed"
+    OCR_NEEDED = "ocr_needed"  # no extractable text; flagged instead of embedded
     FAILED = "failed"
 
 
