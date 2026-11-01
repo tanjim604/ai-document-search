@@ -1,4 +1,4 @@
-# AI Indexing & Similarity --- Jahid's Implementation
+# AI Indexing & Similarity
 
 **Project:** COMP 3710 --- AI Document Search\
 **Owner:** Md Jahid Hossain\
