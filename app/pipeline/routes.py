@@ -119,14 +119,19 @@ def get_similar_files(file_id: str, db: Session = Depends(get_db)):
                 SimilarityMatch.matched_file_id == file_id)
         )
     )
-    matches = []
+    matches = {}
     for row in rows:  # a match is stored once, from the newer file's side; show both ways
         other_id = row.matched_file_id if row.source_file_id == file_id else row.source_file_id
         other = get_file(db, other_id)
         if other is not None:
-            matches.append(SimilarFile(
+            candidate = SimilarFile(
                 file_id=other_id, filename=other.filename,
                 match_type=row.match_type, score=row.similarity_score,
-            ))
-    matches.sort(key=lambda m: m.score, reverse=True)
+            )
+            previous = matches.get(other_id)
+            if previous is None or (candidate.match_type == "exact_duplicate", candidate.score) > (
+                previous.match_type == "exact_duplicate", previous.score
+            ):
+                matches[other_id] = candidate
+    matches = sorted(matches.values(), key=lambda m: m.score, reverse=True)
     return SimilarResponse(file_id=file_id, matches=matches)

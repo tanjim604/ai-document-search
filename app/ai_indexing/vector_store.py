@@ -35,6 +35,17 @@ def ensure_collection(client: QdrantClient) -> None:
         )
 
 
+def delete_file_chunks(client: QdrantClient, file_id: str) -> None:
+    """Remove old or partial vectors before a document is indexed again."""
+    client.delete(
+        collection_name=COLLECTION_NAME,
+        points_selector=models.FilterSelector(filter=models.Filter(must=[
+            models.FieldCondition(key="file_id", match=models.MatchValue(value=file_id))
+        ])),
+        wait=True,
+    )
+
+
 def store_chunk(
     client: QdrantClient,
     *,

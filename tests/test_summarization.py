@@ -40,9 +40,34 @@ def test_text_without_sentences_falls_back_to_opening():
 def test_csv_text_gets_a_table_description(monkeypatch):
     monkeypatch.setattr(extractive, "embed_chunks", lambda s: pytest.fail("not needed"))
     text = "year | milestone\n1956 | Dartmouth workshop\n1958 | Perceptron\n"
-    assert extractive.summarize_extractive(text) == "Table with 2 rows and columns: year, milestone."
+    assert extractive.summarize_extractive(text) == (
+        "Table with 2 rows and columns: year, milestone. "
+        "The first data row contains 1956 | Dartmouth workshop."
+    )
 
 
 def test_xlsx_text_includes_the_sheet_name():
     text = "Sheet: Budget\nItem | Cost (CAD)\nCloud | 0\nDomain | 15\nTotal | \n"
-    assert extractive.describe_table(text) == 'Table (sheet "Budget") with 2 rows and columns: Item, Cost (CAD).'
+    assert extractive.describe_table(text) == (
+        'Table (sheet "Budget") with 2 rows and columns: Item, Cost (CAD). '
+        'The first data row contains Cloud | 0.'
+    )
+
+
+@pytest.mark.parametrize("count", [0, 1, 5])
+def test_summary_rejects_invalid_sentence_count(count):
+    with pytest.raises(ValueError):
+        extractive.summarize_extractive("Text.", max_sentences=count)
+
+
+def test_empty_summary():
+    assert extractive.summarize_extractive("  \n") == ""
+
+
+def test_long_summary_samples_the_end(monkeypatch):
+    seen = []
+    monkeypatch.setattr(extractive, "embed_chunks", lambda s: (seen.extend(s) or fake_embed(s)))
+    sentences = [f"Sentence number {i} says something useful." for i in range(600)]
+    extractive.summarize_extractive(" ".join(sentences))
+    assert len(seen) == extractive.MAX_CANDIDATES
+    assert seen[-1] == sentences[-1]

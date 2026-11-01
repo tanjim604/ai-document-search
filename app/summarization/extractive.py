@@ -41,15 +41,27 @@ def describe_table(text: str) -> str | None:
     if columns and columns[0].lower().startswith("sheet:"):
         columns[0] = columns[0][6:].strip()
     where = f' (sheet "{sheet.split("|")[0].strip()}")' if sheet else ""
-    return f"Table{where} with {len(rows) - 1} rows and columns: {', '.join(columns)}."
+    example = rows[1].rstrip('.!?')
+    if len(example) > 240:
+        example = example[:237] + "..."
+    return (f"Table{where} with {len(rows) - 1} rows and columns: {', '.join(columns)}. "
+            f"The first data row contains {example}.")
 
 
 def summarize_extractive(text: str, max_sentences: int = MAX_SENTENCES) -> str:
     """Return up to `max_sentences` representative sentences ('' if none found)."""
+    if not isinstance(max_sentences, int) or not 2 <= max_sentences <= 4:
+        raise ValueError("max_sentences must be between 2 and 4.")
+    if not text.strip():
+        return ""
     table = describe_table(text)
     if table:
         return table
-    sentences = split_sentences(text)[:MAX_CANDIDATES]
+    sentences = split_sentences(text)
+    if len(sentences) > MAX_CANDIDATES:
+        # Sample across the document so closing sections are represented too.
+        positions = np.linspace(0, len(sentences) - 1, MAX_CANDIDATES, dtype=int)
+        sentences = [sentences[i] for i in positions]
     if not sentences:
         # No proper sentences (a CSV, say): fall back to the opening text.
         return " ".join(text.split())[:300].strip()

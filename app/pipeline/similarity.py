@@ -1,27 +1,28 @@
-"""
-Document-level similarity between a new file and files already indexed.
-
-AI indexing's search_similar_files() labels a file from its single best chunk,
-so two unrelated documents that share one boilerplate paragraph would look like
-near-duplicates. Here a candidate file is scored as the AVERAGE, over all of the
-new file's chunks, of each chunk's best match in that candidate (0 when the
-candidate has nothing close). Only files that are alike overall score high.
-"""
+"""Symmetric document similarity using both documents' complete chunk sets."""
 from dataclasses import dataclass
 
+import numpy as np
 from qdrant_client import QdrantClient, models
 
 from app.ai_indexing.similarity import classify_similarity
 from app.ai_indexing.vector_store import COLLECTION_NAME, ensure_collection
-
-CANDIDATES_PER_CHUNK = 10
 
 
 @dataclass(frozen=True)
 class DocumentMatch:
     file_id: str
     similarity_score: float
-    match_type: str  # near_duplicate or related
+    match_type: str
+
+
+def _normalise(vectors):
+    matrix = np.asarray(vectors, dtype=float)
+    if matrix.ndim != 2 or not np.isfinite(matrix).all():
+        raise ValueError("Chunk vectors must be a finite matrix.")
+    lengths = np.linalg.norm(matrix, axis=1, keepdims=True)
+    if (lengths == 0).any():
+        raise ValueError("Chunk vectors must have non-zero magnitude.")
+    return matrix / lengths
 
 
 def find_document_matches(
@@ -33,39 +34,42 @@ def find_document_matches(
     related_threshold: float,
     skip_file_ids: set[str] = frozenset(),
 ) -> list[DocumentMatch]:
-    """Compare a file's chunk vectors with every other indexed file."""
+    """Use the lower of the two directional mean best-chunk similarities.
+
+    A short excerpt of a larger document must not become a near duplicate just
+    because all of the excerpt occurs in the larger document. Scrolling complete
+    chunk sets also avoids losing candidates behind a top-ten chunk cutoff.
+    This exhaustive comparison suits the project's small demonstration library.
+    """
+    if not 0 <= related_threshold < near_duplicate_threshold <= 1:
+        raise ValueError("Require 0 <= related threshold < near-duplicate threshold <= 1.")
     vectors = [v for v in vectors if v]
     if not vectors:
         return []
+    source = _normalise(vectors)
     ensure_collection(client)
-
-    not_this_file = models.Filter(
-        must_not=[models.FieldCondition(key="file_id", match=models.MatchValue(value=file_id))]
-    )
-    best_per_file: dict[str, list[float]] = {}  # candidate -> best score per chunk
-    for position, vector in enumerate(vectors):
-        response = client.query_points(
+    candidates = {}
+    offset = None
+    while True:
+        points, offset = client.scroll(
             collection_name=COLLECTION_NAME,
-            query=vector,
-            query_filter=not_this_file,
-            limit=CANDIDATES_PER_CHUNK,
-            with_payload=["file_id"],
+            scroll_filter=models.Filter(must_not=[models.FieldCondition(
+                key="file_id", match=models.MatchValue(value=file_id),
+            )]),
+            limit=256, offset=offset, with_vectors=True, with_payload=["file_id"],
         )
-        for point in response.points:
+        for point in points:
             other = (point.payload or {}).get("file_id")
-            if not other or other in skip_file_ids:
-                continue
-            scores = best_per_file.setdefault(other, [0.0] * len(vectors))
-            scores[position] = max(scores[position], float(point.score))
+            if isinstance(other, str) and other and other != file_id and other not in skip_file_ids:
+                candidates.setdefault(other, []).append(point.vector)
+        if offset is None:
+            break
 
     matches = []
-    for other, scores in best_per_file.items():
-        document_score = min(1.0, sum(scores) / len(vectors))
-        label = classify_similarity(
-            document_score,
-            near_duplicate_threshold=near_duplicate_threshold,
-            related_threshold=related_threshold,
-        )
+    for other, chunks in candidates.items():
+        scores = np.clip(source @ _normalise(chunks).T, 0.0, 1.0)
+        score = float(min(scores.max(axis=1).mean(), scores.max(axis=0).mean()))
+        label = classify_similarity(score, near_duplicate_threshold, related_threshold)
         if label != "unrelated":
-            matches.append(DocumentMatch(other, document_score, label))
-    return sorted(matches, key=lambda m: m.similarity_score, reverse=True)
+            matches.append(DocumentMatch(other, score, label))
+    return sorted(matches, key=lambda match: (-match.similarity_score, match.file_id))
